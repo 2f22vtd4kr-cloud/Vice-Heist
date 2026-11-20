@@ -90,3 +90,56 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .actions { grid-template-columns:repeat(2,60px); gap:5px; }
   .actions button { height:44px; font-size:9px; }
 }
+
+/* Compact portrait layout: keep every action visible on short phones. */
+@media (max-height: 700px) and (orientation: portrait) {
+  .menu {
+    justify-content: flex-start;
+    padding: max(12px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom));
+  }
+  .menu-head { margin-bottom: 12px; }
+  .menu .eyebrow { margin: 0 0 8px; }
+  .menu h1 { font-size: 36px; line-height: 1; margin-bottom: 8px; }
+  .menu .sub { font-size: 13px; line-height: 1.35; margin-bottom: 12px; }
+  .menu-form { gap: 4px; margin-bottom: 10px; }
+  .menu-form label { font-size: 12px; }
+  .menu-form input, .menu .join input { min-height: 40px; padding: 8px 12px; margin-bottom: 2px; }
+  .menu-form .key-note { font-size: 10px; margin-top: -2px; }
+  .menu-actions { gap: 6px; margin-bottom: 8px; }
+  .menu .primary, .menu .secondary, .menu .join button { min-height: 40px; padding: 8px 12px; font-size: 13px; }
+  .menu .foot { margin-top: 10px; font-size: 10px; }
+}
+
+/* Landscape phones use two balanced columns instead of a vertically clipped stack. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .menu {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto auto auto;
+    align-content: center;
+    align-items: center;
+    column-gap: 28px;
+    row-gap: 8px;
+    width: min(100%, 900px);
+    height: 100dvh;
+    padding: max(10px, env(safe-area-inset-top)) 28px max(10px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
+  .menu-head { grid-column: 1 / -1; margin: 0 0 4px; }
+  .menu .eyebrow { grid-column: 1; grid-row: 2; margin: 0; }
+  .menu h1 { grid-column: 1; grid-row: 3; font-size: clamp(32px, 8vh, 40px); line-height: 1; margin: 0; }
+  .menu .sub { grid-column: 1; grid-row: 4; font-size: 13px; line-height: 1.35; margin: 0; }
+  .menu-form { grid-column: 2; grid-row: 2 / 4; align-self: end; gap: 4px; margin: 0; }
+  .menu-form label { font-size: 12px; }
+  .menu-form input, .menu .join input { min-height: 38px; padding: 7px 10px; margin: 0; }
+  .menu-form .key-note { font-size: 10px; margin-top: 0; }
+  .menu-actions { grid-column: 2; grid-row: 4; gap: 6px; margin: 0; }
+  .menu .primary, .menu .secondary, .menu .join button { min-height: 38px; padding: 7px 12px; font-size: 12px; }
+  .menu .join { grid-column: 2; grid-row: 5; gap: 6px; }
+  .menu .foot { grid-column: 1 / -1; grid-row: 6; margin: 4px 0 0; font-size: 10px; }
+  .controls { padding-left: 12px; padding-right: 12px; }
+  .stick { width: 96px; height: 96px; flex-basis: 96px; }
+  .knob { left: 26px; top: 26px; }
+  .actions { grid-template-columns: repeat(2, 60px); gap: 5px; }
+  .actions button { height: 44px; font-size: 9px; }
+}
