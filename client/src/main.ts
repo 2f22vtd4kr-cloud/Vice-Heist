@@ -142,7 +142,7 @@ class Estate extends Phaser.Scene {
   }
   private setupVisionCanvas(){
     this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';this.visionCanvas.style.position='absolute';this.visionCanvas.style.inset='0';this.visionCanvas.style.width='100%';this.visionCanvas.style.height='100%';this.visionCanvas.style.pointerEvents='none';this.visionCanvas.style.zIndex='3';
-    this.game.canvas.parentElement?.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d');this.resizeVisionCanvas();
+    this.game.canvas.parentElement?.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d')||undefined;this.resizeVisionCanvas();
   }
   private resizeVisionCanvas(){if(!this.visionCanvas)return;const dpr=Math.min(window.devicePixelRatio||1,2);this.visionCanvas.width=Math.max(1,Math.floor(innerWidth*dpr));this.visionCanvas.height=Math.max(1,Math.floor(innerHeight*dpr));this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
   private drawVision(time:number){
