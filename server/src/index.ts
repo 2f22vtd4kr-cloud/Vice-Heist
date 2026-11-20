@@ -186,31 +186,34 @@ function botsTick(r: Room, now: number) {
 
 io.on('connection', socket => {
   let room: Room | undefined; let player: Player | undefined;
+  const reply = (ack: unknown, payload: unknown) => {
+    if (typeof ack === 'function') (ack as (value: unknown) => void)(payload);
+  };
   const authPlayer = (initData?: string, requestedName?: string) => {
     const tg=validTelegram(initData);
     if(REQUIRE_TELEGRAM_AUTH&&!tg) return null;
     return {name:cleanName(tg?.first_name||requestedName),tg};
   };
-  socket.on('create',(data:{name?:string;initData?:string},ack:(v:any)=>void)=>{
-    const auth=authPlayer(data?.initData,data?.name);if(!auth){ack({ok:false,error:'Telegram authentication failed. Open this game from its Telegram bot.'});return;}
-    room=createRoom();player=addPlayer(room,socket.id,auth.name);room.host=player.id;socket.join(room.code);ack({ok:true,code:room.code,playerId:player.id,sessionKey:player.sessionKey});emit(room);
+  socket.on('create',(data:{name?:string;initData?:string},ack?: (v: any) => void)=>{
+    const auth=authPlayer(data?.initData,data?.name);if(!auth){reply(ack, {ok:false,error:'Telegram authentication failed. Open this game from its Telegram bot.'});return;}
+    room=createRoom();player=addPlayer(room,socket.id,auth.name);room.host=player.id;socket.join(room.code);reply(ack, {ok:true,code:room.code,playerId:player.id,sessionKey:player.sessionKey});emit(room);
   });
-  socket.on('solo',(data:{name?:string;initData?:string},ack:(v:any)=>void)=>{
-    const auth=authPlayer(data?.initData,data?.name);if(!auth){ack({ok:false,error:'Telegram authentication failed. Open this game from its Telegram bot.'});return;}
+  socket.on('solo',(data:{name?:string;initData?:string},ack?: (v: any) => void)=>{
+    const auth=authPlayer(data?.initData,data?.name);if(!auth){reply(ack, {ok:false,error:'Telegram authentication failed. Open this game from its Telegram bot.'});return;}
     room=createRoom();for(let i=0;i<5;i++)addPlayer(room,`bot-${randomBytes(6).toString('hex')}`,BOT_NAMES[i],true);
-    player=addPlayer(room,socket.id,auth.name);room.host=player.id;socket.join(room.code);start(room);ack({ok:true,code:room.code,playerId:player.id,sessionKey:player.sessionKey});emit(room);
+    player=addPlayer(room,socket.id,auth.name);room.host=player.id;socket.join(room.code);start(room);reply(ack, {ok:true,code:room.code,playerId:player.id,sessionKey:player.sessionKey});emit(room);
   });
-  socket.on('join',(data:{code?:string;name?:string;initData?:string},ack:(v:any)=>void)=>{
-    const auth=authPlayer(data?.initData,data?.name);if(!auth){ack({ok:false,error:'Telegram authentication failed.'});return;}
-    const r=rooms.get(String(data?.code||'').toUpperCase());if(!r||r.phase!=='LOBBY'||r.players.size>=10){ack({ok:false,error:'Room unavailable or full.'});return;}
-    room=r;player=addPlayer(r,socket.id,auth.name);if(!r.players.get(r.host)?.connected)r.host=player.id;socket.join(r.code);ack({ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
+  socket.on('join',(data:{code?:string;name?:string;initData?:string},ack?: (v: any) => void)=>{
+    const auth=authPlayer(data?.initData,data?.name);if(!auth){reply(ack, {ok:false,error:'Telegram authentication failed.'});return;}
+    const r=rooms.get(String(data?.code||'').toUpperCase());if(!r||r.phase!=='LOBBY'||r.players.size>=10){reply(ack, {ok:false,error:'Room unavailable or full.'});return;}
+    room=r;player=addPlayer(r,socket.id,auth.name);if(!r.players.get(r.host)?.connected)r.host=player.id;socket.join(r.code);reply(ack, {ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
   });
-  socket.on('resume',(data:{code?:string;sessionKey?:string},ack:(v:any)=>void)=>{
+  socket.on('resume',(data:{code?:string;sessionKey?:string},ack?: (v: any) => void)=>{
     const r=rooms.get(String(data?.code||'').toUpperCase());
     const existing=r&&[...r.players.values()].find(p=>!p.bot&&p.sessionKey===data?.sessionKey);
-    if(!r||!existing){ack({ok:false,error:'Your previous game session expired.'});return;}
+    if(!r||!existing){reply(ack, {ok:false,error:'Your previous game session expired.'});return;}
     room=r;player=existing;player.socketId=socket.id;player.connected=true;socket.join(r.code);
-    ack({ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
+    reply(ack, {ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
   });
   socket.on('ai:key',(value:unknown)=>{if(!player)return;const key=typeof value==='string'?value.trim():'';player.aiKey=/^gsk_[A-Za-z0-9_-]{20,}$/.test(key)?key.slice(0,200):undefined;});
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
