@@ -18,7 +18,7 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .menu,.lobby{padding-top:max(clamp(24px,7vw,54px),env(safe-area-inset-top));padding-bottom:max(clamp(24px,7vw,54px),env(safe-area-inset-bottom))}
 
 
-/* Vice Heist mobile-first menu and controls refinement — unslop by Damir Sokolovsky (CC BY 4.0). */
+/* Vice Heist mobile-first menu and controls refinement, guided by unslop by Damir Sokolovsky: https://github.com/heydamir/unslop (CC BY 4.0). */
 .menu {
   width: min(100%, 520px);
   height: 100vh;
@@ -37,8 +37,8 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .menu-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:32px; }
 .menu .brand { font-size:18px; font-weight:600; letter-spacing:.04em; color:#efe9de; }
 .menu .brand span { color:#d99a55; }
-.menu-location { color:#8a847a; font-size:11px; letter-spacing:.04em; white-space:nowrap; }
-.menu .eyebrow { margin:0 0 16px; font-size:12px; letter-spacing:.04em; color:#aaa398; }
+.menu-location { color:#8a847a; font-size:12px; letter-spacing:0; white-space:nowrap; }
+.menu .eyebrow { margin:0 0 16px; font-size:12px; letter-spacing:0; color:#aaa398; }
 .menu h1 { margin:0 0 16px; font-size:clamp(42px, 11vw, 58px); line-height:1.02; letter-spacing:-.035em; font-weight:500; color:#efe9de; }
 .menu h1 em { color:#d99a55; font-family:Georgia,serif; font-weight:400; }
 .menu .sub { max-width:36rem; margin:0 0 28px; color:#c0b9ae; font-size:15px; line-height:1.55; }
