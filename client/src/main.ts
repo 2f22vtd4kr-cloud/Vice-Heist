@@ -10,7 +10,8 @@ type GameState={code:string;phase:'LOBBY'|'PLAYING'|'MEETING'|'GAME_OVER';player
 const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();
 const socket:Socket=io({transports:['websocket','polling'],reconnection:true});
 const overlay=document.querySelector<HTMLDivElement>('#overlay')!;
-let state:GameState|null=null,roomCode='',joystick={x:0,y:0},self={x:3000,y:2070},muted=false,phase='MENU',chatLines:string[]=[];\nlet syncScene:((s:GameState)=>void)|undefined;
+let state:GameState|null=null,roomCode='',joystick={x:0,y:0},self={x:3000,y:2070},muted=false,phase='MENU',chatLines:string[]=[];
+let syncScene:((s:GameState)=>void)|undefined;
 const buzz=()=>{try{tg?.HapticFeedback?.impactOccurred('light')}catch{}};
 const esc=(s:string)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 function show(html:string){overlay.innerHTML=html;}
@@ -94,22 +95,22 @@ socket.on('connect',()=>{const el=document.querySelector('#toast');if(el)el.text
 socket.on('disconnect',()=>toast('Connection lost. Reconnecting…'));
 socket.on('connect_error',()=>toast('Unable to connect to game server.'));
 class Estate extends Phaser.Scene {
-  private actors=new Map<string,Phaser.GameObjects.Sprite>();private maskOverlay:Phaser.GameObjects.Image[]=[];private keys!:any;private cursors!:any;private ready=false;private lastEmit=0;private taskDots!:Phaser.GameObjects.Graphics;
+  private actors=new Map<string,Phaser.GameObjects.Sprite>();private keys!:any;private debugGraphics!:Phaser.GameObjects.Graphics;private cursors!:any;private ready=false;private lastEmit=0;private taskDots!:Phaser.GameObjects.Graphics;
   private maskData:Uint8Array[]=[];private maskReady=false;private visionCanvas?:HTMLCanvasElement;private visionCtx?:CanvasRenderingContext2D;private lastVision=0;
   constructor(){super('Estate');}
   preload(){
-    for(let i=1;i<=8;i++){this.load.image('map'+i,'/assets/map/take-'+i+'.webp');this.load.image('mask'+i,'/assets/map/mask-'+i+'.png');}
+    for(let i=1;i<=8;i++)this.load.image('map'+i,'/assets/map/take-'+i+'.webp');
     this.load.spritesheet('crew','/assets/characters/balaclava-sheet.webp',{frameWidth:512,frameHeight:512});
   }
   async create(){
     this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.min(innerWidth/950,innerHeight/560)*1.3);
-    for(let i=0;i<8;i++){const x=(i%4)*2048+1024,y=Math.floor(i/4)*2048+1024;this.add.image(x,y,'map'+(i+1)).setDepth(0);this.maskOverlay.push(this.add.image(x,y,'mask'+(i+1)).setDepth(50).setAlpha(.42).setVisible(false));}
+    for(let i=0;i<8;i++){const x=(i%4)*2048+1024,y=Math.floor(i/4)*2048+1024;this.add.image(x,y,'map'+(i+1)).setDepth(0);}
     this.anims.create({key:'idle',frames:this.anims.generateFrameNumbers('crew',{start:0,end:3}),frameRate:5,repeat:-1});
     this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:11,repeat:-1});
     this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:5,repeat:0});
-    this.taskDots=this.add.graphics().setDepth(4);this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
+    this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(50);this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     await this.loadCollisionMasks();this.ready=true;this.setupVisionCanvas();
-    this.scale.on('resize',()=>this.resizeVisionCanvas());
+    this.scale.on('resize',()=>this.resizeVisionCanvas());syncScene=(s)=>this.syncState(s);if(state)this.syncState(state);
   }
   private async loadCollisionMasks(){
     const canvas=document.createElement('canvas');canvas.width=2048;canvas.height=2048;
@@ -121,6 +122,7 @@ class Estate extends Phaser.Scene {
       for(let p=0,j=0;p<oneBit.length;p++,j+=4)oneBit[p]=rgba[j]>200?1:0;
       this.maskData.push(oneBit);
     }
+    this.maskReady=true;
   }
   private solid(x:number,y:number):boolean{
     if(!this.maskReady&&!this.maskData.length)return true;
@@ -131,7 +133,14 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{
     const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));
   }
-  syncState(s:GameState){\n    const mine=s.players.find(p=>p.id===socket.id);\n    if(mine){const diff=Math.hypot(mine.x-self.x,mine.y-self.y);if(diff>60){self.x=mine.x;self.y=mine.y;}else{self.x+=(mine.x-self.x)*.18;self.y+=(mine.y-self.y)*.18;}\n      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);else a.play('idle',true);}\n    for(const p of s.players){if(p.id===socket.id)continue;let a=this.actors.get(p.id);if(!a){a=this.add.sprite(p.x,p.y,'crew',0).setDepth(10).setScale(.22);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);this.actors.set(p.id,a);}this.tweens.add({targets:a,x:p.x,y:p.y,duration:180,ease:'Linear'});a.setAlpha(p.alive?1:.4);if(!p.alive)a.play('down',true);}\n    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}\n  }\n  private setupVisionCanvas(){
+  syncState(s:GameState){
+    const mine=s.players.find(p=>p.id===socket.id);
+    if(mine){const diff=Math.hypot(mine.x-self.x,mine.y-self.y);if(diff>60){self.x=mine.x;self.y=mine.y;}else{self.x+=(mine.x-self.x)*.18;self.y+=(mine.y-self.y)*.18;}
+      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);else a.play('idle',true);}
+    for(const p of s.players){if(p.id===socket.id)continue;let a=this.actors.get(p.id);if(!a){a=this.add.sprite(p.x,p.y,'crew',0).setDepth(10).setScale(.22);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);this.actors.set(p.id,a);}this.tweens.add({targets:a,x:p.x,y:p.y,duration:180,ease:'Linear'});a.setAlpha(p.alive?1:.4);if(!p.alive)a.play('down',true);}
+    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
+  }
+  private setupVisionCanvas(){
     this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';this.visionCanvas.style.position='absolute';this.visionCanvas.style.inset='0';this.visionCanvas.style.width='100%';this.visionCanvas.style.height='100%';this.visionCanvas.style.pointerEvents='none';this.visionCanvas.style.zIndex='3';
     this.game.canvas.parentElement?.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d');this.resizeVisionCanvas();
   }
