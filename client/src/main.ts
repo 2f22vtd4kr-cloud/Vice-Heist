@@ -66,7 +66,7 @@ function updateLobby(s: Snapshot) {
 }
 function hud() {
   currentPhase='PLAYING';
-  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><button id="sound" aria-label="Toggle sound">♫</button></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="controls"><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div><div class="actions"><button id="use">USE</button><button id="report">REPORT</button><button id="emergency">EMERGENCY</button><button id="kill" class="danger">ELIMINATE</button><button id="sabotage" class="danger">LIGHTS</button></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
+  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><button id="sound" aria-label="Toggle sound">♫</button></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div><div class="actions"><button id="use">USE</button><button id="report">REPORT</button><button id="emergency">EMERGENCY</button><button id="kill" class="danger">ELIMINATE</button><button id="sabotage" class="danger">LIGHTS</button></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
   wireControls(); updateHud(latest);
 }
 function wireControls() {
@@ -101,6 +101,11 @@ function updateHud(s: Snapshot | null) {
   if(!s||currentPhase!=='PLAYING')return;
   const done=s.tasks.filter(t=>t.done).length;const objective=document.querySelector('#objective');const local=s.players.find(p=>p.id===myId);
   if(objective)objective.textContent=local?.alive?`${done}/${s.taskTotal} estate jobs secured · ${s.selfRole==='MOLE'?'You are the Mole':'Find the Mole'}`:'YOU ARE DOWN · SPECTATING';
+  const radar=document.querySelector<HTMLDivElement>('#radar');if(radar){
+    const tasks=s.tasks.map(t=>'<i class="radar-task '+(t.done?'done':'')+'" style="left:'+(t.x/8192*100)+'%;top:'+(t.y/4096*100)+'%"></i>').join('');
+    const players=s.players.map(p=>'<i class="radar-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" style="left:'+(p.x/8192*100)+'%;top:'+(p.y/4096*100)+'%;--marker:'+escapeHtml(p.color)+'"></i>').join('');
+    radar.innerHTML=tasks+players;
+  }
   const kill=document.querySelector<HTMLButtonElement>('#kill'),sab=document.querySelector<HTMLButtonElement>('#sabotage');
   if(kill){kill.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil((s.selfCooldownUntil-Date.now())/1000));kill.disabled=!local?.alive||left>0;kill.textContent=left>0?`ELIM ${left}s`:'ELIMINATE';}
   if(sab){sab.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil(((s.sabotage?.endsAt||0)-Date.now())/1000));sab.disabled=!local?.alive||left>0;sab.textContent=left>0?`LIGHTS ${left}s`:'LIGHTS';}
@@ -138,14 +143,14 @@ class Estate extends Phaser.Scene {
     this.load.spritesheet('crew','/assets/characters/balaclava-sheet.webp',{frameWidth:512,frameHeight:512});
   }
   create(){
-    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.32,Math.min(innerWidth/950,innerHeight/560)*1.3));
+    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     this.anims.create({key:'idle',frames:this.anims.generateFrameNumbers('crew',{start:0,end:3}),frameRate:2,repeat:-1});
     this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:4,repeat:-1});
     this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:3,repeat:0});
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.32,Math.min(innerWidth/950,innerHeight/560)*1.3));});sceneRef=this;
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));});sceneRef=this;
     if(latest)this.syncState(latest);
   }
   private loadMasks(){
@@ -165,10 +170,10 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.42);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.62);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.42);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.62);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const moving=Math.hypot(a.x-p.x,a.y-p.y)>3;this.tweens.killTweensOf(a);this.tweens.add({targets:a,x:p.x,y:p.y,duration:220,ease:'Linear'});a.setFlipX(p.x<a.x);a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
@@ -176,11 +181,11 @@ class Estate extends Phaser.Scene {
   private setupVision(){this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';app.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d')||undefined;this.resizeVision();}
   private resizeVision(){if(!this.visionCanvas)return;const dpr=Math.min(devicePixelRatio||1,2);this.visionCanvas.width=Math.max(1,Math.floor(innerWidth*dpr));this.visionCanvas.height=Math.max(1,Math.floor(innerHeight*dpr));this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
   private drawVision(time:number){
-    const ctx=this.visionCtx;if(!ctx||!this.visionCanvas)return;if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){ctx.clearRect(0,0,innerWidth,innerHeight);return;}if(time-this.lastVision<140)return;this.lastVision=time;
+    const ctx=this.visionCtx;if(!ctx||!this.visionCanvas)return;if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){ctx.clearRect(0,0,innerWidth,innerHeight);return;}if(time-this.lastVision<40)return;this.lastVision=time;
     ctx.clearRect(0,0,innerWidth,innerHeight);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,innerWidth,innerHeight);
-    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive)return;
+    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,innerWidth,innerHeight);return;}
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
-    const rayCount=512,rayStep=2,cam=this.cameras.main;
+    const rayCount=512,rayStep=3,cam=this.cameras.main,view=cam.worldView;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=0,blocked=radius;
@@ -193,10 +198,10 @@ class Estate extends Phaser.Scene {
         if(this.solid(me.x+dx*mid,me.y+dy*mid))blocked=mid;else clear=mid;
       }
       const wx=me.x+dx*clear,wy=me.y+dy*clear;
-      points.push({x:(wx-cam.scrollX)*cam.zoom+cam.x,y:(wy-cam.scrollY)*cam.zoom+cam.y});
+      points.push({x:(wx-view.x)*cam.zoom+cam.x,y:(wy-view.y)*cam.zoom+cam.y});
     }
-    const sx=(me.x-cam.scrollX)*cam.zoom+cam.x,sy=(me.y-cam.scrollY)*cam.zoom+cam.y;
-    ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
+    const sx=(me.x-view.x)*cam.zoom+cam.x,sy=(me.y-view.y)*cam.zoom+cam.y;
+    ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,1)';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
   }
   update(time:number,delta:number){
     if(!this.ready)return;if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
