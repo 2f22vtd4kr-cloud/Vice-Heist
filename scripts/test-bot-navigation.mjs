@@ -12,7 +12,7 @@ async function unusedPort() {
 }
 
 const port = await unusedPort();
-const origin = `http://127.0.0.1:${port}`;
+const origin = 'http://127.0.0.1:' + port;
 const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   cwd: process.cwd(),
   env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false' },
@@ -24,8 +24,8 @@ try {
   const deadline = Date.now() + 15_000;
   let healthy = false;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Game server exited unexpectedly (${child.exitCode}).`);
-    try { const response = await fetch(`${origin}/health`); if (response.ok) { healthy = true; break; } } catch { /* starting */ }
+    if (child.exitCode !== null) throw new Error('Game server exited unexpectedly (' + child.exitCode + ').');
+    try { const response = await fetch(origin + '/health'); if (response.ok) { healthy = true; break; } } catch { /* starting */ }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(healthy, true, 'game server should become healthy');
@@ -35,18 +35,56 @@ try {
   assert.equal(started.ok, true, 'solo room should start');
 
   let first, latest;
-  const gotFirst = new Promise(resolve => socket.on('state', state => { first ??= state; latest = state; resolve(); }));
+  const histories = new Map();
+  const gotFirst = new Promise(resolve => socket.on('state', state => {
+    first ??= state;
+    latest = state;
+    const time = Date.now();
+    for (const bot of state.players.filter(player => player.bot)) {
+      let history = histories.get(bot.id);
+      if (!history) { history = { name: bot.name, samples: [] }; histories.set(bot.id, history); }
+      history.samples.push({
+        time, x: bot.x, y: bot.y, alive: bot.alive,
+        tasks: state.tasks.filter(task => !task.done).map(task => ({ x: task.x, y: task.y })),
+        players: state.players.filter(player => player.id !== bot.id && player.alive).map(player => ({ x: player.x, y: player.y })),
+      });
+    }
+    resolve();
+  }));
   await gotFirst;
-  await new Promise(resolve => setTimeout(resolve, 22_000));
+
+  const startedAt = Date.now();
+  await new Promise(resolve => setTimeout(resolve, 25_000));
 
   const movedBots = latest.players.filter(player => player.bot).filter(player => {
     const initial = first.players.find(candidate => candidate.id === player.id);
     return initial && Math.hypot(player.x - initial.x, player.y - initial.y) >= 100;
   });
   const completedTasks = latest.tasks.filter(task => task.done).length;
-  assert.ok(movedBots.length >= 4, `expected at least four bots to navigate, observed ${movedBots.length}`);
-  assert.ok(completedTasks >= 1, `expected crew bots to complete an estate task, observed ${completedTasks}`);
-  console.log(`Bot navigation regression passed: ${movedBots.length}/5 bots moved at least 100 world units; ${completedTasks} tasks completed in 22 seconds.`);
+  const stuckBots = [];
+
+  for (const [id, history] of histories) {
+    for (let window = 0; window < 5; window++) {
+      const from = startedAt + window * 5_000;
+      const to = from + 5_000;
+      const samples = history.samples.filter(sample => sample.time >= from && sample.time <= to);
+      if (samples.length < 2) continue;
+      let travelled = 0;
+      for (let index = 1; index < samples.length; index++) {
+        travelled += Math.hypot(samples[index].x - samples[index - 1].x, samples[index].y - samples[index - 1].y);
+      }
+      const last = samples[samples.length - 1];
+      if (!last.alive || travelled >= 40) continue;
+      const nearTask = last.tasks.some(task => Math.hypot(task.x - last.x, task.y - last.y) < 130);
+      const nearPlayer = last.players.some(player => Math.hypot(player.x - last.x, player.y - last.y) < 150);
+      if (!nearTask && !nearPlayer) stuckBots.push(history.name + ' (window ' + (window + 1) + ', travelled ' + Math.round(travelled) + ')');
+    }
+  }
+
+  assert.ok(movedBots.length >= 4, 'expected at least four bots to navigate, observed ' + movedBots.length);
+  assert.ok(completedTasks >= 1, 'expected crew bots to complete an estate task, observed ' + completedTasks);
+  assert.deepEqual(stuckBots, [], 'living bots must not remain stationary away from tasks or other players: ' + stuckBots.join(', '));
+  console.log('Bot navigation regression passed: ' + movedBots.length + '/5 bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
 } finally {
   socket?.close();
   child.kill('SIGTERM');

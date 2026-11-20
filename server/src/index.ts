@@ -102,29 +102,34 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;
-  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();
+  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.cooldownUntil=0;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
-  list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach((bot,index)=>botTaskAssignments.set(bot.id,TASKS[index%TASKS.length].id));
+  const availableTasks=[...r.tasks];
+  list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach(bot=>{
+    const nearest=availableTasks.sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y)).shift();
+    if(nearest)botTaskAssignments.set(bot.id,nearest.id);
+  });
   return true;
 }
 function closestTask(r: Room, p: Player) { return r.tasks.filter(t=>!t.done).sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0]; }
 function nearestTask(r: Room, p: Player) { const t=closestTask(r,p);return t&&Math.hypot(t.x-p.x,t.y-p.y)<150?t:undefined; }
-const BOT_CELL = 64, BOT_COLS = 128, BOT_ROWS = 64;
+const BOT_CELL = 32, BOT_COLS = 256, BOT_ROWS = 128;
 type BotRoute = { key:string; goalX:number; goalY:number; path:number[]; index:number; plannedAt:number; lastX:number; lastY:number; stuckSince:number };
 const botRoutes = new Map<string,BotRoute>();
 const botTaskAssignments = new Map<string,string>();
+const botHuntTargets = new Map<string,{targetId:string; selectedAt:number}>();
 const botNeighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
 function cellCenter(index:number){return{x:(index%BOT_COLS+.5)*BOT_CELL,y:(Math.floor(index/BOT_COLS)+.5)*BOT_CELL};}
 function cellAt(x:number,y:number){return Math.max(0,Math.min(BOT_ROWS-1,Math.floor(y/BOT_CELL)))*BOT_COLS+Math.max(0,Math.min(BOT_COLS-1,Math.floor(x/BOT_CELL)));}
 function nearestWalkableCell(index:number):number{
-  const origin=cellCenter(index);if(!blocked(origin.x,origin.y,22))return index;
-  for(let radius=1;radius<=8;radius++)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
+  const origin=cellCenter(index);if(!blocked(origin.x,origin.y,18))return index;
+  for(let radius=1;radius<=12;radius++)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
     if(Math.max(Math.abs(dx),Math.abs(dy))!==radius)continue;
     const x=index%BOT_COLS+dx,y=Math.floor(index/BOT_COLS)+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
-    const candidate=y*BOT_COLS+x,point=cellCenter(candidate);if(!blocked(point.x,point.y,22))return candidate;
+    const candidate=y*BOT_COLS+x,point=cellCenter(candidate);if(!blocked(point.x,point.y,18))return candidate;
   }return index;
 }
 function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
@@ -134,7 +139,7 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   while(head<tail){const current=queue[head++];if(current===goal)break;const cx=current%BOT_COLS,cy=Math.floor(current/BOT_COLS);
     for(const[dx,dy]of botNeighbors){const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;const next=y*BOT_COLS+x;if(previous[next]!==-2)continue;
       const point=cellCenter(next);if(blocked(point.x,point.y,22))continue;
-      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,22)||blocked(sideB.x,sideB.y,22))continue;}
+      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
       previous[next]=current;queue[tail++]=next;
     }
   }
@@ -144,13 +149,28 @@ function moveBotToward(bot:Player,target:{x:number;y:number},step:number,key:str
   let route=botRoutes.get(bot.id);
   const changed=!route||route.key!==key||Math.hypot(route.goalX-target.x,route.goalY-target.y)>112;
   const stuck=!!route&&Math.hypot(bot.x-route.lastX,bot.y-route.lastY)<5&&now-route.stuckSince>1250;
-  if(changed||!route||route.index>=route.path.length||stuck||now-route.plannedAt>4000){
+  if(changed||!route||(route.path.length>0&&route.index>=route.path.length)||stuck||now-route.plannedAt>4000){
     route={key,goalX:target.x,goalY:target.y,path:findBotPath(bot,target),index:0,plannedAt:now,lastX:bot.x,lastY:bot.y,stuckSince:now};botRoutes.set(bot.id,route);
   }
-  if(!route.path.length)return;
+  if(!route.path.length){
+    // A narrow doorway or temporarily blocked goal can defeat a coarse route.
+    // Try short collision-safe steering angles so an NPC does not freeze.
+    const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
+    let best:{x:number;y:number;score:number}|undefined;
+    for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
+      const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
+      const canX=!blocked(nx,bot.y,18),canY=!blocked(bot.x,ny,18);
+      const candidateX=canX?nx:bot.x,candidateY=canY?ny:bot.y;
+      if(!canX&&!canY)continue;
+      const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
+      if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
+    }
+    if(best){bot.x=best.x;bot.y=best.y;route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
+    return;
+  }
   while(route.index<route.path.length-1){const point=cellCenter(route.path[route.index]);if(Math.hypot(point.x-bot.x,point.y-bot.y)>42)break;route.index++;}
   const point=cellCenter(route.path[Math.min(route.index,route.path.length-1)]),dx=point.x-bot.x,dy=point.y-bot.y,d=Math.hypot(dx,dy)||1;
-  const nx=bot.x+dx/d*step,ny=bot.y+dy/d*step;if(!blocked(nx,bot.y,22))bot.x=nx;if(!blocked(bot.x,ny,22))bot.y=ny;
+  const travel=Math.min(step,d),nx=bot.x+dx/d*travel,ny=bot.y+dy/d*travel;if(!blocked(nx,bot.y,18))bot.x=nx;if(!blocked(bot.x,ny,18))bot.y=ny;
   if(Math.hypot(bot.x-route.lastX,bot.y-route.lastY)>4){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
 }
 function hasLineOfSight(a:{x:number;y:number},b:{x:number;y:number}):boolean{
@@ -208,19 +228,35 @@ function botsTick(r: Room, now: number) {
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
-        const crew=alive.filter(p=>p.role==='CREW').sort((x,y)=>{
-          const threatScore=(candidate:Player)=>{
-            const distance=Math.hypot(candidate.x-bot.x,candidate.y-bot.y);
-            const nearbyCrew=alive.filter(other=>other.id!==candidate.id&&other.role==='CREW'&&Math.hypot(other.x-candidate.x,other.y-candidate.y)<320).length;
-            return distance+nearbyCrew*180;
-          };
-          return threatScore(x)-threatScore(y);
-        });
-        const target=crew[0];
-        if(target)moveBotToward(bot,target,74,`hunt:${target.id}`,now);
-        else{const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];moveBotToward(bot,patrol,60,`patrol:${patrol.id}`,now);}
+        const crew=alive.filter(p=>p.role==='CREW').map(candidate=>{
+          const distance=Math.hypot(candidate.x-bot.x,candidate.y-bot.y);
+          const nearbyCrew=alive.filter(other=>other.id!==candidate.id&&other.role==='CREW'&&Math.hypot(other.x-candidate.x,other.y-candidate.y)<320).length;
+          const visible=hasLineOfSight(bot,candidate);
+          const previous=botHuntTargets.get(bot.id);
+          const repeatPenalty=previous?.targetId===candidate.id&&now-previous.selectedAt<9000?420:0;
+          const playerBias=candidate.bot?-120:0;
+          return {candidate,distance,visible,score:distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+playerBias};
+        }).sort((a,b)=>a.score-b.score);
+        const previous=botHuntTargets.get(bot.id);
+        const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
+        const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1150);
+        const retain=!!current&&!!previous&&now-previous.selectedAt<5500&&current.distance<1350;
+        const selected=retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]);
+        const target=selected?.candidate;
+        if(target){
+          if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
+          if(selected.visible||selected.distance<360)moveBotToward(bot,target,74,'hunt:'+target.id,now);
+          else{
+            const patrol=TASKS.filter(task=>!r.tasks.find(t=>t.id===task.id)?.done).sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0]||TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
+            moveBotToward(bot,patrol,60,'ambush:'+patrol.id,now);
+          }
+        }else{
+          botHuntTargets.delete(bot.id);
+          const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
+          moveBotToward(bot,patrol,60,'patrol:'+patrol.id,now);
+        }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<.008){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
-        const victim=crew.find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
+        const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
         if(victim&&now>bot.cooldownUntil&&Math.random()<.10){
           victim.alive=false;victim.reported=false;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
