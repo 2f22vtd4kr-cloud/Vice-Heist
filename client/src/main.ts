@@ -132,6 +132,7 @@ function renderState(s: Snapshot) {
 
 class Estate extends Phaser.Scene {
   private actors = new Map<string, Phaser.GameObjects.Sprite>();
+  private remoteTargets = new Map<string,{x:number;y:number}>();
   private keys!: any;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0;
@@ -170,13 +171,15 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.62);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.62);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
-      const moving=Math.hypot(a.x-p.x,a.y-p.y)>3;this.tweens.killTweensOf(a);this.tweens.add({targets:a,x:p.x,y:p.y,duration:220,ease:'Linear'});a.setFlipX(p.x<a.x);a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+      const previous=this.remoteTargets.get(p.id),moving=!!previous&&Math.hypot(previous.x-p.x,previous.y-p.y)>2;
+      this.remoteTargets.set(p.id,{x:p.x,y:p.y});if(previous&&moving)a.setFlipX(p.x<previous.x);
+      a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
     }
-    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
+    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteTargets.delete(id);}
   }
   private setupVision(){this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';app.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d')||undefined;this.resizeVision();}
   private resizeVision(){if(!this.visionCanvas)return;const dpr=Math.min(devicePixelRatio||1,2);this.visionCanvas.width=Math.max(1,Math.floor(innerWidth*dpr));this.visionCanvas.height=Math.max(1,Math.floor(innerHeight*dpr));this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
@@ -204,7 +207,10 @@ class Estate extends Phaser.Scene {
     ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,1)';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
   }
   update(time:number,delta:number){
-    if(!this.ready)return;if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
+    if(!this.ready)return;
+    const blend=1-Math.exp(-Math.max(0,delta)/85);
+    for(const [id,target] of this.remoteTargets){const actor=this.actors.get(id);if(actor){actor.x+=(target.x-actor.x)*blend;actor.y+=(target.y-actor.y)*blend;}}
+    if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
     const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.drawVision(time);return;}
     if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
