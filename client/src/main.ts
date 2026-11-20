@@ -168,7 +168,7 @@ class Estate extends Phaser.Scene {
     if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.42);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.28);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.42);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const moving=Math.hypot(a.x-p.x,a.y-p.y)>3;this.tweens.killTweensOf(a);this.tweens.add({targets:a,x:p.x,y:p.y,duration:220,ease:'Linear'});a.setFlipX(p.x<a.x);a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
