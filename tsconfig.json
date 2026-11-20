@@ -1,1 +1,16 @@
-{"compilerOptions":{"target":"ES2022","useDefineForClassFields":true,"module":"ESNext","lib":["ES2022","DOM","DOM.Iterable"],"moduleResolution":"Bundler","strict":true,"skipLibCheck":true,"noEmit":true,"types":[]},"include":["src"]}
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "../dist",
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../shared/**/*.ts"
+  ]
+}
