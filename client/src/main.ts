@@ -136,8 +136,8 @@ class Estate extends Phaser.Scene {
   syncState(s:GameState){
     const mine=s.players.find(p=>p.id===socket.id);
     if(mine){const diff=Math.hypot(mine.x-self.x,mine.y-self.y);if(diff>60){self.x=mine.x;self.y=mine.y;}else{self.x+=(mine.x-self.x)*.18;self.y+=(mine.y-self.y)*.18;}
-      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setPosition(self.x,self.y);a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);else a.play('idle',true);}
-    for(const p of s.players){if(p.id===socket.id)continue;let a=this.actors.get(p.id);if(!a){a=this.add.sprite(p.x,p.y,'crew',0).setDepth(10).setScale(.22);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);this.actors.set(p.id,a);}this.tweens.add({targets:a,x:p.x,y:p.y,duration:180,ease:'Linear'});a.setAlpha(p.alive?1:.4);if(!p.alive)a.play('down',true);}
+      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setPosition(self.x,self.y);a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);}
+    for(const p of s.players){if(p.id===socket.id)continue;let a=this.actors.get(p.id);if(!a){a=this.add.sprite(p.x,p.y,'crew',0).setDepth(10).setScale(.22);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);this.actors.set(p.id,a);}const moving=Math.hypot(a.x-p.x,a.y-p.y)>3;this.tweens.add({targets:a,x:p.x,y:p.y,duration:180,ease:'Linear'});a.setFlipX(p.x<a.x);a.setAlpha(p.alive?1:.4);if(!p.alive)a.play('down',true);else a.play(moving?'run':'idle',true);}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
   }
   private setupVisionCanvas(){
