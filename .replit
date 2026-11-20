@@ -1,0 +1,1 @@
+run = "npm run build && npm start"\nentrypoint = "client/index.html"\n\n[deployment]\nrun = ["sh", "-c", "npm run build && npm start"]\n\n[[ports]]\nlocalPort = 3000\nexternalPort = 80\n
