@@ -188,7 +188,7 @@ class Estate extends Phaser.Scene {
     ctx.clearRect(0,0,innerWidth,innerHeight);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,innerWidth,innerHeight);
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,innerWidth,innerHeight);return;}
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
-    const rayCount=512,rayStep=3,cam=this.cameras.main,view=cam.worldView;
+    const rayCount=1024,rayStep=3,cam=this.cameras.main,view=cam.worldView;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=0,blocked=radius;
