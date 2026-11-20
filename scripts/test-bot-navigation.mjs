@@ -18,7 +18,7 @@ const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false' },
   stdio: 'ignore',
 });
-const socket = io(origin, { transports: ['websocket'], reconnection: false, timeout: 5_000 });
+let socket;
 
 try {
   const deadline = Date.now() + 15_000;
@@ -29,6 +29,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(healthy, true, 'game server should become healthy');
+  socket = io(origin, { transports: ['websocket'], reconnection: false, timeout: 5_000 });
   await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
   const started = await new Promise(resolve => socket.emit('solo', { name: 'Bot QA' }, resolve));
   assert.equal(started.ok, true, 'solo room should start');
@@ -47,6 +48,7 @@ try {
   assert.ok(completedTasks >= 1, `expected crew bots to complete an estate task, observed ${completedTasks}`);
   console.log(`Bot navigation regression passed: ${movedBots.length}/5 bots moved at least 100 world units; ${completedTasks} tasks completed in 22 seconds.`);
 } finally {
-  socket.close();
+  socket?.close();
   child.kill('SIGTERM');
+  await new Promise(resolve => child.once('exit', resolve));
 }
