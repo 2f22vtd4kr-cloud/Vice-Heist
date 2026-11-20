@@ -208,7 +208,14 @@ function botsTick(r: Room, now: number) {
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
-        const crew=alive.filter(p=>p.role==='CREW').sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y));
+        const crew=alive.filter(p=>p.role==='CREW').sort((x,y)=>{
+          const threatScore=(candidate:Player)=>{
+            const distance=Math.hypot(candidate.x-bot.x,candidate.y-bot.y);
+            const nearbyCrew=alive.filter(other=>other.id!==candidate.id&&other.role==='CREW'&&Math.hypot(other.x-candidate.x,other.y-candidate.y)<320).length;
+            return distance+nearbyCrew*180;
+          };
+          return threatScore(x)-threatScore(y);
+        });
         const target=crew[0];
         if(target)moveBotToward(bot,target,74,`hunt:${target.id}`,now);
         else{const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];moveBotToward(bot,patrol,60,`patrol:${patrol.id}`,now);}
