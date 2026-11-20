@@ -1,0 +1,93 @@
+{
+  "pack": "Ocean Drive Estate — collision masks, revision 2",
+  "takes": [
+    {
+      "take": 1,
+      "name": "Helipad & Security Command",
+      "row": 0,
+      "col": 0,
+      "mask": "masks/take-1-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 2,
+      "name": "VIP Lounge & Cocktail Bar",
+      "row": 0,
+      "col": 1,
+      "mask": "masks/take-2-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 3,
+      "name": "Master Suite & Safe Vault",
+      "row": 0,
+      "col": 2,
+      "mask": "masks/take-3-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 4,
+      "name": "Infinity Pool & Sun Deck",
+      "row": 0,
+      "col": 3,
+      "mask": "masks/take-4-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 5,
+      "name": "Underground Garage & Heist Vault",
+      "row": 1,
+      "col": 0,
+      "mask": "masks/take-5-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 6,
+      "name": "Server & Surveillance Room",
+      "row": 1,
+      "col": 1,
+      "mask": "masks/take-6-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 7,
+      "name": "Generator & Power Bay",
+      "row": 1,
+      "col": 2,
+      "mask": "masks/take-7-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    },
+    {
+      "take": 8,
+      "name": "Speedboat Getaway Dock",
+      "row": 1,
+      "col": 3,
+      "mask": "masks/take-8-mask.png",
+      "width": 2048,
+      "height": 2048,
+      "solid": "#FFFFFF",
+      "walkable": "#000000"
+    }
+  ]
+}
