@@ -1,1 +1,7 @@
-export type Role='CREW'|'MOLE';\nexport type Phase='LOBBY'|'PLAYING'|'MEETING'|'GAME_OVER';\nexport type Player={id:string;name:string;color:string;x:number;y:number;alive:boolean;role?:Role;bot:boolean;tasks:number;lastMove:number;cooldownUntil:number};\nexport type PublicPlayer=Omit<Player,'role'>;\nexport type Task={id:string;label:string;x:number;y:number;done:boolean;zone:number};\nexport type Snapshot={code:string;phase:Phase;players:PublicPlayer[];selfRole?:Role;tasks:Task[];taskTotal:number;meeting?:{reason:string;votes:Record<string,string>;endsAt:number};winner?:'CREW'|'MOLE';sabotage?:{kind:string;endsAt:number}};\n
+export type Role = 'CREW' | 'MOLE';
+export type Phase = 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
+export type Player = { id:string; name:string; color:string; x:number; y:number; alive:boolean; role:Role; bot:boolean; tasks:number; lastMove:number; cooldownUntil:number; emergencyUsed:boolean };
+export type PublicPlayer = Omit<Player,'role'|'emergencyUsed'>;
+export type Task = { id:string; label:string; x:number; y:number; done:boolean; zone:number };
+export type Body = { id:string; name:string; x:number; y:number; reported:boolean };
+export type Snapshot = { code:string; phase:Phase; players:PublicPlayer[]; selfRole?:Role; tasks:Task[]; taskTotal:number; bodies:Body[]; meeting?:{reason:string; votes:Record<string,string>; endsAt:number}; winner?:'CREW'|'MOLE'; sabotage?:{kind:string;endsAt:number}; emergencyCooldownUntil:number };
