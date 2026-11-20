@@ -79,7 +79,7 @@ function publicPlayer(p:Player):PublicPlayer {
 function snapshot(r:Room,viewer:string):Snapshot {
   return {code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:r.players.get(viewer)?.role,
     tasks:r.tasks,bodies:r.bodies,taskTotal:r.tasks.length,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,
-    emergencyCooldownUntil:r.emergencyCooldownUntil};
+    emergencyCooldownUntil:r.emergencyCooldownUntil,selfCooldownUntil:r.players.get(viewer)?.cooldownUntil||0,selfEmergencyUsed:r.players.get(viewer)?.emergencyUsed||false};
 }
 function emitRoom(r:Room):void {
   for(const p of r.players.values()) io.sockets.sockets.get(p.id)?.emit('state',snapshot(r,p.id));
