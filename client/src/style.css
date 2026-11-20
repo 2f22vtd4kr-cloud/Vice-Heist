@@ -159,3 +159,16 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .menu .primary, .menu .secondary, .menu .join button { min-height: 36px; padding: 6px 10px; font-size: 12px; }
   .menu .foot { margin-top: 8px; font-size: 11px; }
 }
+
+/* Gameplay HUD: reduce control obstruction and make remote NPC activity legible. */
+.objective { max-width: calc(100% - 126px); line-height: 1.35; }
+.radar { position:absolute; top:62px; right:14px; width:88px; height:44px; overflow:hidden; border:1px solid #ffffff40; border-radius:7px; background:rgba(12,13,18,.78); box-shadow:0 3px 14px #0008; pointer-events:none; }
+.radar::after { content:"ESTATE"; position:absolute; left:4px; top:2px; z-index:2; color:#ffffff80; font-size:6px; font-weight:800; letter-spacing:.1em; }
+.radar-task,.radar-player { position:absolute; display:block; transform:translate(-50%,-50%); }
+.radar-task { width:3px; height:3px; border-radius:50%; background:#e8b56e; box-shadow:0 0 3px #f5b36d; }
+.radar-task.done { opacity:.18; }
+.radar-player { width:5px; height:5px; border-radius:50%; background:var(--marker,#fff); border:1px solid #111; }
+.radar-player.self { width:8px; height:8px; border:2px solid #fff; box-shadow:0 0 0 2px #d99a55; z-index:3; }
+.radar-player.down { opacity:.25; }
+@media (min-width:360px) { .controls { padding-left:12px; padding-right:12px; } .actions { grid-template-columns:repeat(3,60px); gap:6px; } .actions button { height:46px; min-width:0; font-size:9px; letter-spacing:.035em; } }
+@media (max-width:359px) { .objective { max-width:calc(100% - 28px); right:14px; } .radar { top:108px; left:14px; right:auto; } .controls { padding-left:10px; padding-right:10px; } .actions { grid-template-columns:repeat(2,64px); gap:6px; } .actions button { height:48px; } }
