@@ -197,7 +197,7 @@ function botsTick(r: Room, now: number) {
         const task=r.tasks.filter(t=>!t.done).sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y))[0];
         if(task)moveBotToward(bot,task,52,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
-        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(underLights?.08:.16)){
+        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(underLights ? 0.08 : 0.16)){
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
