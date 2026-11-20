@@ -202,7 +202,7 @@ function botsTick(r: Room, now: number) {
           task=r.tasks.filter(t=>!t.done&&!claimed.has(t.id)).sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y))[0]||closestTask(r,bot);
           if(task)botTaskAssignments.set(bot.id,task.id);
         }
-        if(task)moveBotToward(bot,task,52,`task:${task.id}`,now);
+        if(task)moveBotToward(bot,task,68,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
         if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(underLights ? 0.08 : 0.16)){
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
@@ -210,8 +210,8 @@ function botsTick(r: Room, now: number) {
       }else{
         const crew=alive.filter(p=>p.role==='CREW').sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y));
         const target=crew[0];
-        if(target)moveBotToward(bot,target,58,`hunt:${target.id}`,now);
-        else{const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];moveBotToward(bot,patrol,48,`patrol:${patrol.id}`,now);}
+        if(target)moveBotToward(bot,target,74,`hunt:${target.id}`,now);
+        else{const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];moveBotToward(bot,patrol,60,`patrol:${patrol.id}`,now);}
         if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<.008){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
         if(victim&&now>bot.cooldownUntil&&Math.random()<.10){
@@ -270,7 +270,7 @@ io.on('connection', socket => {
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
   socket.on('move',(input:{x:number;y:number})=>{
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y))return;
-    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.12),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),len=Math.hypot(dx,dy)||1,speed=310;
+    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.12),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),len=Math.hypot(dx,dy)||1,speed=370;
     const nx=clamp(player.x+dx/len*speed*dt,32,8160),ny=clamp(player.y+dy/len*speed*dt,32,4064);
     if(!blocked(nx,player.y))player.x=nx;if(!blocked(player.x,ny))player.y=ny;player.lastMove=now;
   });
