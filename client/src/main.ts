@@ -147,8 +147,8 @@ class Estate extends Phaser.Scene {
     this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     this.anims.create({key:'idle',frames:this.anims.generateFrameNumbers('crew',{start:0,end:3}),frameRate:2,repeat:-1});
-    this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:4,repeat:-1});
-    this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:3,repeat:0});
+    this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:3,repeat:-1});
+    this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:2,repeat:0});
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));});sceneRef=this;
