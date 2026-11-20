@@ -1,0 +1,1 @@
+import { defineConfig } from 'vite';\nimport { resolve, dirname } from 'node:path';\nimport { fileURLToPath } from 'node:url';\nconst here=dirname(fileURLToPath(import.meta.url));\nexport default defineConfig({root:here,build:{outDir:resolve(here,'../dist/client'),emptyOutDir:true},server:{host:'0.0.0.0'}});\n
