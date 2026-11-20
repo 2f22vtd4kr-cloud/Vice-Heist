@@ -21,9 +21,10 @@ input,textarea{user-select:text;-webkit-user-select:text}
 /* Vice Heist mobile-first menu and controls refinement — unslop by Damir Sokolovsky (CC BY 4.0). */
 .menu {
   width: min(100%, 520px);
-  min-height: 100vh;
-  min-height: 100svh;
-  height: auto;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
   margin: 0 auto;
   padding: max(28px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
   justify-content: center;
@@ -73,4 +74,19 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .stick { flex-basis:116px; width:116px; height:116px; }
   .actions { grid-template-columns:repeat(2,68px); gap:7px; }
   .actions button { height:54px; }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .menu { justify-content:flex-start; padding-top:max(12px, env(safe-area-inset-top)); padding-bottom:max(12px, env(safe-area-inset-bottom)); }
+  .menu-head { margin-bottom:12px; }
+  .menu h1 { font-size:36px; line-height:1; margin-bottom:8px; }
+  .menu .sub { margin-bottom:12px; font-size:13px; }
+  .menu-form { gap:6px; margin-bottom:10px; }
+  .menu-form input,.menu .join input { min-height:40px; padding:8px 12px; }
+  .menu .primary,.menu .secondary,.menu .join button { min-height:40px; }
+  .menu .foot { margin-top:10px; }
+  .controls { padding-left:12px; padding-right:12px; }
+  .stick { width:96px; height:96px; flex-basis:96px; }
+  .actions { grid-template-columns:repeat(2,60px); gap:5px; }
+  .actions button { height:44px; font-size:9px; }
 }
