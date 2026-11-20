@@ -102,11 +102,12 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;
-  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();
+  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.cooldownUntil=0;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
+  list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach((bot,index)=>botTaskAssignments.set(bot.id,TASKS[index%TASKS.length].id));
   return true;
 }
 function closestTask(r: Room, p: Player) { return r.tasks.filter(t=>!t.done).sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0]; }
@@ -114,6 +115,7 @@ function nearestTask(r: Room, p: Player) { const t=closestTask(r,p);return t&&Ma
 const BOT_CELL = 64, BOT_COLS = 128, BOT_ROWS = 64;
 type BotRoute = { key:string; goalX:number; goalY:number; path:number[]; index:number; plannedAt:number; lastX:number; lastY:number; stuckSince:number };
 const botRoutes = new Map<string,BotRoute>();
+const botTaskAssignments = new Map<string,string>();
 const botNeighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
 function cellCenter(index:number){return{x:(index%BOT_COLS+.5)*BOT_CELL,y:(Math.floor(index/BOT_COLS)+.5)*BOT_CELL};}
 function cellAt(x:number,y:number){return Math.max(0,Math.min(BOT_ROWS-1,Math.floor(y/BOT_CELL)))*BOT_COLS+Math.max(0,Math.min(BOT_COLS-1,Math.floor(x/BOT_CELL)));}
@@ -194,11 +196,16 @@ function botsTick(r: Room, now: number) {
     const alive=[...r.players.values()].filter(p=>p.alive);
     for(const bot of alive.filter(p=>p.bot)){
       if(bot.role==='CREW'){
-        const task=r.tasks.filter(t=>!t.done).sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y))[0];
+        let task=r.tasks.find(t=>!t.done&&t.id===botTaskAssignments.get(bot.id));
+        if(!task){
+          const claimed=new Set([...botTaskAssignments.entries()].filter(([id])=>id!==bot.id&&alive.some(p=>p.id===id&&p.role==='CREW')).map(([,taskId])=>taskId));
+          task=r.tasks.filter(t=>!t.done&&!claimed.has(t.id)).sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y))[0]||closestTask(r,bot);
+          if(task)botTaskAssignments.set(bot.id,task.id);
+        }
         if(task)moveBotToward(bot,task,52,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
         if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(underLights ? 0.08 : 0.16)){
-          task.done=true;bot.tasks++;botRoutes.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
+          task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
         const crew=alive.filter(p=>p.role==='CREW').sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y));
