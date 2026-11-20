@@ -138,7 +138,7 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   const queue=new Int32Array(BOT_COLS*BOT_ROWS);let head=0,tail=0;queue[tail++]=start;
   while(head<tail){const current=queue[head++];if(current===goal)break;const cx=current%BOT_COLS,cy=Math.floor(current/BOT_COLS);
     for(const[dx,dy]of botNeighbors){const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;const next=y*BOT_COLS+x;if(previous[next]!==-2)continue;
-      const point=cellCenter(next);if(blocked(point.x,point.y,22))continue;
+      const point=cellCenter(next);if(blocked(point.x,point.y,18))continue;
       if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
       previous[next]=current;queue[tail++]=next;
     }
@@ -147,7 +147,7 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
 }
 function moveBotToward(bot:Player,target:{x:number;y:number},step:number,key:string,now:number){
   let route=botRoutes.get(bot.id);
-  const changed=!route||route.key!==key||Math.hypot(route.goalX-target.x,route.goalY-target.y)>112;
+  const changed=!route||route.key!==key||Math.hypot(route.goalX-target.x,route.goalY-target.y)>192;
   const stuck=!!route&&Math.hypot(bot.x-route.lastX,bot.y-route.lastY)<5&&now-route.stuckSince>1250;
   if(changed||!route||(route.path.length>0&&route.index>=route.path.length)||stuck||now-route.plannedAt>4000){
     route={key,goalX:target.x,goalY:target.y,path:findBotPath(bot,target),index:0,plannedAt:now,lastX:bot.x,lastY:bot.y,stuckSince:now};botRoutes.set(bot.id,route);
@@ -245,11 +245,9 @@ function botsTick(r: Room, now: number) {
         const target=selected?.candidate;
         if(target){
           if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
-          if(selected.visible||selected.distance<360)moveBotToward(bot,target,74,'hunt:'+target.id,now);
-          else{
-            const patrol=TASKS.filter(task=>!r.tasks.find(t=>t.id===task.id)?.done).sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0]||TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
-            moveBotToward(bot,patrol,60,'ambush:'+patrol.id,now);
-          }
+          // Follow the selected crew member even when walls block line of sight.
+          // Collision-aware pathfinding handles obstacles; line of sight is required only for elimination.
+          moveBotToward(bot,target,74,'hunt:'+target.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
