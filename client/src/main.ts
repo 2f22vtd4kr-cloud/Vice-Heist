@@ -79,7 +79,7 @@ socket.on('state',(s:GameState)=>{
     if(phase!=='PLAYING')hud();
     const o=document.querySelector('#objective');if(o)o.textContent=s.tasks.filter(t=>t.done).length+'/'+s.taskTotal+' estate jobs secured · '+(s.selfRole==='MOLE'?'You are the Mole':'Find the Mole');
     const kill=document.querySelector<HTMLButtonElement>('#kill'),sab=document.querySelector<HTMLButtonElement>('#sabotage');if(kill)kill.style.display=s.selfRole==='MOLE'?'block':'none';if(sab)sab.style.display=s.selfRole==='MOLE'?'block':'none';
-    const report=document.querySelector<HTMLButtonElement>('#report');if(report)report.disabled=!nearestBody();
+    const report=document.querySelector<HTMLButtonElement>('#report');if(report)report.disabled=!nearestBody();const emergency=document.querySelector<HTMLButtonElement>('#emergency');if(emergency){const left=Math.max(0,Math.ceil((s.emergencyCooldownUntil-Date.now())/1000));emergency.disabled=left>0;emergency.textContent=left>0?'CALL '+left+'s':'EMERGENCY';}const use=document.querySelector<HTMLButtonElement>('#use');if(use)use.style.display=s.selfRole==='MOLE'?'none':'block';
     const meet=document.querySelector('#meet');if(meet)meet.innerHTML='';
   } else if(s.phase==='MEETING'){
     if(previous!=='MEETING'||phase!=='MEETING')renderMeeting(s);else updateMeetingTimer(s);
@@ -136,7 +136,7 @@ class Estate extends Phaser.Scene {
   syncState(s:GameState){
     const mine=s.players.find(p=>p.id===socket.id);
     if(mine){const diff=Math.hypot(mine.x-self.x,mine.y-self.y);if(diff>60){self.x=mine.x;self.y=mine.y;}else{self.x+=(mine.x-self.x)*.18;self.y+=(mine.y-self.y)*.18;}
-      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);else a.play('idle',true);}
+      let a=this.actors.get(mine.id);if(!a){a=this.add.sprite(mine.x,mine.y,'crew',0).setDepth(10).setScale(.22);this.actors.set(mine.id,a);this.cameras.main.startFollow(a,true,.12,.12);}a.setPosition(self.x,self.y);a.setTint(Phaser.Display.Color.HexStringToColor(mine.color).color);a.setAlpha(mine.alive?1:.4);if(!mine.alive)a.play('down',true);else a.play('idle',true);}
     for(const p of s.players){if(p.id===socket.id)continue;let a=this.actors.get(p.id);if(!a){a=this.add.sprite(p.x,p.y,'crew',0).setDepth(10).setScale(.22);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);this.actors.set(p.id,a);}this.tweens.add({targets:a,x:p.x,y:p.y,duration:180,ease:'Linear'});a.setAlpha(p.alive?1:.4);if(!p.alive)a.play('down',true);}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);}
   }
@@ -173,7 +173,7 @@ class Estate extends Phaser.Scene {
       if(time-this.lastEmit>45){socket.emit('move',{x,y});this.lastEmit=time;}
     }else this.actors.get(socket.id||'')?.play('idle',true);
     this.taskDots.clear();
-    for(const t of state.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
+    for(const t of state.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}for(const b of state.bodies||[])if(!b.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(b.x,b.y,30);this.taskDots.lineBetween(b.x-13,b.y-13,b.x+13,b.y+13);this.taskDots.lineBetween(b.x+13,b.y-13,b.x-13,b.y+13);}
     if(k.C.isDown){this.taskDots.lineStyle(1,0xffffff,.5);this.taskDots.strokeRect(0,0,8192,4096);}
     this.drawVision(time);
   }
