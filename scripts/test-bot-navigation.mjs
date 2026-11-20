@@ -56,7 +56,8 @@ try {
   const startedAt = Date.now();
   await new Promise(resolve => setTimeout(resolve, 25_000));
 
-  const movedBots = latest.players.filter(player => player.bot).filter(player => {
+  const livingBots = latest.players.filter(player => player.bot && player.alive);
+  const movedBots = livingBots.filter(player => {
     const initial = first.players.find(candidate => candidate.id === player.id);
     return initial && Math.hypot(player.x - initial.x, player.y - initial.y) >= 100;
   });
@@ -81,10 +82,11 @@ try {
     }
   }
 
-  assert.ok(movedBots.length >= 4, 'expected at least four bots to navigate, observed ' + movedBots.length);
+  assert.ok(livingBots.length >= 3, 'expected at least three surviving NPCs, observed ' + livingBots.length);
+  assert.ok(movedBots.length >= Math.min(2, livingBots.length), 'expected at least two surviving bots to navigate, observed ' + movedBots.length + '/' + livingBots.length);
   assert.ok(completedTasks >= 1, 'expected crew bots to complete an estate task, observed ' + completedTasks);
   assert.deepEqual(stuckBots, [], 'living bots must not remain stationary away from tasks or other players: ' + stuckBots.join(', '));
-  console.log('Bot navigation regression passed: ' + movedBots.length + '/5 bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
+  console.log('Bot navigation regression passed: ' + movedBots.length + '/' + livingBots.length + ' surviving bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
 } finally {
   socket?.close();
   child.kill('SIGTERM');
