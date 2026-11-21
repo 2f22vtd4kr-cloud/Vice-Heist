@@ -88,9 +88,9 @@ const customLogicStart = js.indexOf('  /* ───────── custom gam
 const customLogicEnd = js.indexOf('  /* ───────── join by code ───────── */', customLogicStart);
 if (customLogicStart < 0 || customLogicEnd < 0) throw new Error('Custom-game script block not found.');
 js = js.slice(0, customLogicStart) +
-  '  /* Custom lobby options are intentionally limited to capabilities supported by the game server. */\\n\\n' +
+  '  /* Custom lobby options are intentionally limited to capabilities supported by the game server. */\n\n' +
   js.slice(customLogicEnd);
-js = js.replace("      lobby.visibility = 'private'; save(LOBBY_KEY, lobby); paintVisibility(); paintLobby();\\n      return go('custom');",
+js = js.replace("      lobby.visibility = 'private'; save(LOBBY_KEY, lobby); paintVisibility(); paintLobby();\n      return go('custom');",
   "      return go('custom');");
 const settingsAnchor = '    window.dispatchEvent(new CustomEvent(\'viceheist:settings-changed\', { detail: { ...settings } }));';
 if (!js.includes(settingsAnchor)) throw new Error('Settings event anchor not found.');
