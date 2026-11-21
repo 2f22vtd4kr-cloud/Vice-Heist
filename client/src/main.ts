@@ -195,6 +195,19 @@ function wireControls() {
   document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
   document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
 }
+function openMapOverlay(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
+  const tasks=latest.tasks.map(t=>`<div class="map-task ${t.done?'done':''}"><i></i><span>${escapeHtml(t.label)}</span><b>${t.done?'SECURED':'OPEN'}</b></div>`).join('');
+  m.innerHTML=`<div class="meetingbox art-panel map-panel"><button class="panel-close" id="map-close">×</button><p class="eyebrow">OCEAN DRIVE ESTATE</p><h3>Estate map</h3><img class="map-frame-art" src="${artUrl('overlay_estate_map')}" alt=""><div class="map-radar-art"><img src="${artUrl('overlay_admin_radar')}" alt=""><div class="map-radar-dots">${latest.players.map(p=>`<i style="left:${p.x/8192*100}%;top:${p.y/4096*100}%;background:${escapeHtml(p.color)}"></i>`).join('')}</div></div><div class="map-task-list">${tasks}</div></div>`;
+  m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
+}
+function openSettingsOverlay(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
+  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><small>Right-hand joystick</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Secret passages</span><small>Not enabled in this game mode</small></div><button class="primary" id="settings-done">DONE</button></div>`;
+  m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
+  m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
+  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
+}
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
 function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
 function nearestTarget(): PublicPlayer | undefined { return latest?.players.filter(p=>p.alive&&p.id!==myId).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<125).sort((a,b)=>a.d-b.d)[0]; }
