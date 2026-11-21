@@ -316,7 +316,7 @@ class Estate extends Phaser.Scene {
     // Cast a uniform, deterministic fan directly against the binary collision mask.
     // Sparse pre-sampled edge rays created long slivers when adjacent mask pixels
     // contributed nearly-identical angles; the mask itself is the source of truth.
-    const rayCount=540,rayStep=4,cam=this.cameras.main,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
+    const rayCount=720,rayStep=2,cam=this.cameras.main,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
     for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
     for(const angle of rayAngles){
       const dx=Math.cos(angle),dy=Math.sin(angle);
@@ -325,7 +325,7 @@ class Estate extends Phaser.Scene {
         if(this.solid(me.x+dx*distance,me.y+dy*distance)){blocked=distance;clear=distance-rayStep;break;}
         clear=distance;
       }
-      for(let refine=0;refine<7&&blocked>clear;refine++){
+      for(let refine=0;refine<8&&blocked>clear;refine++){
         const mid=(clear+blocked)*.5;
         if(this.solid(me.x+dx*mid,me.y+dy*mid))blocked=mid;else clear=mid;
       }
