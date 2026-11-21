@@ -1,0 +1,730 @@
+{
+  "game": "Vice Heist: Ocean Drive Estate",
+  "chromaKey": "#00FF00",
+  "note": "Frames are exact grid multiples. sheets/ are chroma-green originals; transparent/ have the green keyed to alpha. Some sheets have a faint 1-3px divider line on cell edges; inset frames by ~6px if it shows.",
+  "sheets": {
+    "sheet1_hud_buttons": {
+      "title": "HUD Action Buttons & World Interaction Icons",
+      "file": "sheets/sheet1_hud_buttons.png",
+      "transparentFile": "transparent/sheet1_hud_buttons.png",
+      "width": 2048,
+      "height": 2048,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "frames": {
+        "btn_use_active": {
+          "x": 0,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "btn_use_dim": {
+          "x": 512,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 2,
+          "frameIndex": 1
+        },
+        "btn_report_active": {
+          "x": 1024,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 3,
+          "frameIndex": 2
+        },
+        "btn_report_dim": {
+          "x": 1536,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 4,
+          "frameIndex": 3
+        },
+        "btn_kill_active": {
+          "x": 0,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 1,
+          "frameIndex": 4
+        },
+        "btn_kill_dim": {
+          "x": 512,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 2,
+          "frameIndex": 5
+        },
+        "btn_sabotage_active": {
+          "x": 1024,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 3,
+          "frameIndex": 6
+        },
+        "btn_vent_active": {
+          "x": 1536,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 4,
+          "frameIndex": 7
+        },
+        "btn_emergency_call": {
+          "x": 0,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 1,
+          "frameIndex": 8
+        },
+        "btn_map_toggle": {
+          "x": 512,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 2,
+          "frameIndex": 9
+        },
+        "btn_settings": {
+          "x": 1024,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 3,
+          "frameIndex": 10
+        },
+        "btn_chat_toggle": {
+          "x": 1536,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 4,
+          "frameIndex": 11
+        },
+        "joystick_base": {
+          "x": 0,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 1,
+          "frameIndex": 12
+        },
+        "joystick_knob": {
+          "x": 512,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 2,
+          "frameIndex": 13
+        },
+        "icon_task_marker": {
+          "x": 1024,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 3,
+          "frameIndex": 14
+        },
+        "icon_admin_blip": {
+          "x": 1536,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 4,
+          "frameIndex": 15
+        }
+      }
+    },
+    "sheet2_map_props": {
+      "title": "Map Props, Vents, Security & Sabotage Overlays",
+      "file": "sheets/sheet2_map_props.png",
+      "transparentFile": "transparent/sheet2_map_props.png",
+      "width": 2048,
+      "height": 2048,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "frames": {
+        "vent_closed": {
+          "x": 0,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "vent_open": {
+          "x": 512,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 2,
+          "frameIndex": 1
+        },
+        "vent_arrow": {
+          "x": 1024,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 3,
+          "frameIndex": 2
+        },
+        "camera_prop_idle": {
+          "x": 1536,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 4,
+          "frameIndex": 3
+        },
+        "camera_prop_live": {
+          "x": 0,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 1,
+          "frameIndex": 4
+        },
+        "door_vertical_shut": {
+          "x": 512,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 2,
+          "frameIndex": 5
+        },
+        "door_horizontal_shut": {
+          "x": 1024,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 3,
+          "frameIndex": 6
+        },
+        "sabotage_pin_lights": {
+          "x": 1536,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 4,
+          "frameIndex": 7
+        },
+        "sabotage_pin_comms": {
+          "x": 0,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 1,
+          "frameIndex": 8
+        },
+        "sabotage_pin_reactor": {
+          "x": 512,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 2,
+          "frameIndex": 9
+        },
+        "sabotage_pin_o2": {
+          "x": 1024,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 3,
+          "frameIndex": 10
+        },
+        "sabotage_pin_doors": {
+          "x": 1536,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 4,
+          "frameIndex": 11
+        },
+        "task_console_glow": {
+          "x": 0,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 1,
+          "frameIndex": 12
+        },
+        "corpse_chalk_outline": {
+          "x": 512,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 2,
+          "frameIndex": 13
+        },
+        "meeting_table_prop": {
+          "x": 1024,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 3,
+          "frameIndex": 14
+        },
+        "escape_chopper_boat": {
+          "x": 1536,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 4,
+          "frameIndex": 15
+        }
+      }
+    },
+    "sheet3_character_actions": {
+      "title": "Character Action, Takedown & Ghost Sprites",
+      "file": "sheets/sheet3_character_actions.png",
+      "transparentFile": "transparent/sheet3_character_actions.png",
+      "width": 2048,
+      "height": 2048,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "frames": {
+        "walk_up_1": {
+          "x": 0,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "walk_up_2": {
+          "x": 512,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 2,
+          "frameIndex": 1
+        },
+        "walk_up_3": {
+          "x": 1024,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 3,
+          "frameIndex": 2
+        },
+        "walk_up_4": {
+          "x": 1536,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 4,
+          "frameIndex": 3
+        },
+        "walk_down_1": {
+          "x": 0,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 1,
+          "frameIndex": 4
+        },
+        "walk_down_2": {
+          "x": 512,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 2,
+          "frameIndex": 5
+        },
+        "walk_down_3": {
+          "x": 1024,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 3,
+          "frameIndex": 6
+        },
+        "walk_down_4": {
+          "x": 1536,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 4,
+          "frameIndex": 7
+        },
+        "kill_lunge_1": {
+          "x": 0,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 1,
+          "frameIndex": 8
+        },
+        "kill_lunge_2": {
+          "x": 512,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 2,
+          "frameIndex": 9
+        },
+        "kill_lunge_3": {
+          "x": 1024,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 3,
+          "frameIndex": 10
+        },
+        "kill_lunge_4": {
+          "x": 1536,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 4,
+          "frameIndex": 11
+        },
+        "ghost_float_1": {
+          "x": 0,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 1,
+          "frameIndex": 12
+        },
+        "ghost_float_2": {
+          "x": 512,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 2,
+          "frameIndex": 13
+        },
+        "ghost_float_3": {
+          "x": 1024,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 3,
+          "frameIndex": 14
+        },
+        "ghost_float_4": {
+          "x": 1536,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 4,
+          "frameIndex": 15
+        }
+      }
+    },
+    "sheet4_cutscene_slides": {
+      "title": "Full-Screen Cutscene & Reveal Slides",
+      "file": "sheets/sheet4_cutscene_slides.png",
+      "transparentFile": null,
+      "width": 2048,
+      "height": 1536,
+      "frameWidth": 1024,
+      "frameHeight": 768,
+      "frames": {
+        "slide_role_reveal": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 768,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "slide_kill_cutscene": {
+          "x": 1024,
+          "y": 0,
+          "w": 1024,
+          "h": 768,
+          "row": 1,
+          "col": 2,
+          "frameIndex": 1
+        },
+        "slide_report_meeting": {
+          "x": 0,
+          "y": 768,
+          "w": 1024,
+          "h": 768,
+          "row": 2,
+          "col": 1,
+          "frameIndex": 2
+        },
+        "slide_ejection_victory": {
+          "x": 1024,
+          "y": 768,
+          "w": 1024,
+          "h": 768,
+          "row": 2,
+          "col": 2,
+          "frameIndex": 3
+        }
+      }
+    },
+    "sheet5_menu_lobby_voting": {
+      "title": "Menu Background, Lobby & Meeting Voting UI",
+      "file": "sheets/sheet5_menu_lobby_voting.png",
+      "transparentFile": "transparent/sheet5_menu_lobby_voting.png",
+      "width": 2048,
+      "height": 2048,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "frames": {
+        "menu_bg_art": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 1024,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "logo_vice_heist": {
+          "x": 1024,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 3,
+          "frameIndex": 2
+        },
+        "btn_menu_host_join": {
+          "x": 1536,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "row": 1,
+          "col": 4,
+          "frameIndex": 3
+        },
+        "panel_lobby_code": {
+          "x": 1024,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 3,
+          "frameIndex": 6
+        },
+        "swatches_player_colors": {
+          "x": 1536,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "row": 2,
+          "col": 4,
+          "frameIndex": 7
+        },
+        "tablet_meeting_frame": {
+          "x": 0,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 1,
+          "frameIndex": 8
+        },
+        "vote_card_alive": {
+          "x": 512,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 2,
+          "frameIndex": 9
+        },
+        "vote_card_dead": {
+          "x": 1024,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 3,
+          "frameIndex": 10
+        },
+        "btn_vote_confirm_skip": {
+          "x": 1536,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "row": 3,
+          "col": 4,
+          "frameIndex": 11
+        },
+        "hud_task_bar": {
+          "x": 0,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 1,
+          "frameIndex": 12
+        },
+        "overlay_estate_map": {
+          "x": 512,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 2,
+          "frameIndex": 13
+        },
+        "overlay_cctv_monitor": {
+          "x": 1024,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 3,
+          "frameIndex": 14
+        },
+        "overlay_admin_radar": {
+          "x": 1536,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "row": 4,
+          "col": 4,
+          "frameIndex": 15
+        }
+      }
+    },
+    "sheet6_task_minigames": {
+      "title": "Mini-Game Task UI Assets",
+      "file": "sheets/sheet6_task_minigames.png",
+      "transparentFile": "transparent/sheet6_task_minigames.png",
+      "width": 2048,
+      "height": 2048,
+      "frameWidth": 1024,
+      "frameHeight": 512,
+      "frames": {
+        "task_vault_dial": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 512,
+          "row": 1,
+          "col": 1,
+          "frameIndex": 0
+        },
+        "task_wires_server": {
+          "x": 1024,
+          "y": 0,
+          "w": 1024,
+          "h": 512,
+          "row": 1,
+          "col": 2,
+          "frameIndex": 1
+        },
+        "task_keycard_swipe": {
+          "x": 0,
+          "y": 512,
+          "w": 1024,
+          "h": 512,
+          "row": 2,
+          "col": 1,
+          "frameIndex": 2
+        },
+        "task_generator_breakers": {
+          "x": 1024,
+          "y": 512,
+          "w": 1024,
+          "h": 512,
+          "row": 2,
+          "col": 2,
+          "frameIndex": 3
+        },
+        "task_boat_fuel": {
+          "x": 0,
+          "y": 1024,
+          "w": 1024,
+          "h": 512,
+          "row": 3,
+          "col": 1,
+          "frameIndex": 4
+        },
+        "task_cocktail_mix": {
+          "x": 1024,
+          "y": 1024,
+          "w": 1024,
+          "h": 512,
+          "row": 3,
+          "col": 2,
+          "frameIndex": 5
+        },
+        "task_pool_valves": {
+          "x": 0,
+          "y": 1536,
+          "w": 1024,
+          "h": 512,
+          "row": 4,
+          "col": 1,
+          "frameIndex": 6
+        },
+        "task_garage_scan": {
+          "x": 1024,
+          "y": 1536,
+          "w": 1024,
+          "h": 512,
+          "row": 4,
+          "col": 2,
+          "frameIndex": 7
+        }
+      }
+    }
+  }
+}
