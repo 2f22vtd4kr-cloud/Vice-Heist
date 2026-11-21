@@ -309,11 +309,16 @@ io.on('connection', socket => {
   });
   socket.on('ai:key',(value:unknown)=>{if(!player)return;const key=typeof value==='string'?value.trim():'';player.aiKey=/^gsk_[A-Za-z0-9_-]{20,}$/.test(key)?key.slice(0,200):undefined;});
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
-  socket.on('move',(input:{x:number;y:number})=>{
-    if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y))return;
-    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.12),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),len=Math.hypot(dx,dy)||1,speed=370;
-    const nx=clamp(player.x+dx/len*speed*dt,32,8160),ny=clamp(player.y+dy/len*speed*dt,32,4064);
+  socket.on('move',(input:{x:number;y:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
+    const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
+    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.12),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
+    // A zero vector is an explicit release: advance no position and reset the
+    // movement clock so the next press cannot inherit stale elapsed time.
+    if(magnitude<0.12){player.lastMove=now;reply({ok:true,x:player.x,y:player.y});return;}
+    const nx=clamp(player.x+dx/magnitude*370*dt,32,8160),ny=clamp(player.y+dy/magnitude*370*dt,32,4064);
     if(!blocked(nx,player.y))player.x=nx;if(!blocked(player.x,ny))player.y=ny;player.lastMove=now;
+    reply({ok:true,x:player.x,y:player.y});
   });
   socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<player.cooldownUntil)return;const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.alive=false;t.reported=false;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
