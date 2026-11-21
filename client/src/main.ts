@@ -181,7 +181,7 @@ function wireControls() {
   const stick=document.querySelector<HTMLElement>('#stick')!,knob=document.querySelector<HTMLElement>('#knob')!;let active=false;
   const move=(e:PointerEvent)=>{const r=stick.getBoundingClientRect();let dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2,d=Math.hypot(dx,dy),max=43;if(d>max){dx=dx/d*max;dy=dy/d*max;}joystick={x:dx/max,y:dy/max};knob.style.transform=`translate(${dx}px,${dy}px)`;};
   stick.addEventListener('pointerdown',e=>{active=true;stick.setPointerCapture(e.pointerId);move(e);});stick.addEventListener('pointermove',e=>{if(active)move(e);});
-  const stop=()=>{active=false;joystick={x:0,y:0};knob.style.transform='translate(0,0)';};stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);stick.addEventListener('lostpointercapture',stop);
+  const stop=()=>{active=false;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement();};stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);stick.addEventListener('lostpointercapture',stop);
   document.querySelector('#use')!.addEventListener('click',()=>{const t=nearestTask();if(t)openTask(t);else toast('Move closer to an unfinished task.');haptic();});
   document.querySelector('#report')!.addEventListener('click',()=>{const b=nearestBody();if(b){socket.emit('report',b.id);tone(300);}else toast('No body nearby to report.');haptic();});
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
@@ -243,7 +243,7 @@ class Estate extends Phaser.Scene {
   private remoteSamples = new Map<string,{x:number;y:number;time:number}[]>();
   private keys!: any;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private ready = false; private lastEmit = 0;
+  private ready = false; private lastEmit = 0; private moving = false; private moveSequence = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
@@ -259,6 +259,16 @@ class Estate extends Phaser.Scene {
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
     if(latest)this.syncState(latest);
+  }
+  stopMovement(){
+    if(!this.moving)return;
+    this.moving=false;
+    const sequence=++this.moveSequence;
+    socket.emit('move',{x:0,y:0},(ack?:{ok?:boolean;x?:number;y?:number})=>{
+      if(sequence!==this.moveSequence||this.moving||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
+      serverMe.x=ack.x!;serverMe.y=ack.y!;me.x=ack.x!;me.y=ack.y!;
+      this.actors.get(myId)?.setPosition(me.x,me.y);
+    });
   }
   private applyCameraZoom(){
     const width=this.scale.width||innerWidth,height=this.scale.height||innerHeight;
@@ -306,7 +316,7 @@ class Estate extends Phaser.Scene {
     // Cast a uniform, deterministic fan directly against the binary collision mask.
     // Sparse pre-sampled edge rays created long slivers when adjacent mask pixels
     // contributed nearly-identical angles; the mask itself is the source of truth.
-    const rayCount=540,rayStep=4,cam=this.cameras.main,view=cam.worldView,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
+    const rayCount=720,rayStep=2,cam=this.cameras.main,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
     for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
     for(const angle of rayAngles){
       const dx=Math.cos(angle),dy=Math.sin(angle);
@@ -315,14 +325,14 @@ class Estate extends Phaser.Scene {
         if(this.solid(me.x+dx*distance,me.y+dy*distance)){blocked=distance;clear=distance-rayStep;break;}
         clear=distance;
       }
-      for(let refine=0;refine<7&&blocked>clear;refine++){
+      for(let refine=0;refine<8&&blocked>clear;refine++){
         const mid=(clear+blocked)*.5;
         if(this.solid(me.x+dx*mid,me.y+dy*mid))blocked=mid;else clear=mid;
       }
       const wx=me.x+dx*clear,wy=me.y+dy*clear;
-      points.push({x:rect.left+cam.x+(wx-view.x)*cam.zoom,y:rect.top+cam.y+(wy-view.y)*cam.zoom});
+      points.push({x:rect.left+cam.x+(wx-cam.scrollX)*cam.zoom,y:rect.top+cam.y+(wy-cam.scrollY)*cam.zoom});
     }
-    const sx=rect.left+cam.x+(me.x-view.x)*cam.zoom,sy=rect.top+cam.y+(me.y-view.y)*cam.zoom;
+    const sx=rect.left+cam.x+(me.x-cam.scrollX)*cam.zoom,sy=rect.top+cam.y+(me.y-cam.scrollY)*cam.zoom;
     ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,1)';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
   }
   update(time:number,delta:number){
@@ -334,29 +344,32 @@ class Estate extends Phaser.Scene {
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
       if(player?.alive&&moving){const key=`creature-run-${creatureColumn(player.color)}`;if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame(creatureColumn(player.color));}
     }
-    if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
-    const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.drawVision(time);return;}
-    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.drawVision(time);return;}
+    if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
+    const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
+    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
-    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.012:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
+    if(Math.hypot(x,y)<.12){x=0;y=0;}
+    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.025:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
-    if(x||y){const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey||!actor.anims.isPlaying)actor.play(runKey,true);}if(time-this.lastEmit>50){socket.emit('move',{x,y});this.lastEmit=time;}
-    }else{const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
+    if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
+      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey||!actor.anims.isPlaying)actor.play(runKey,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
+    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
     this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
     for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
-  shutdown(){this.visionCanvas?.remove();sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.visionCanvas?.remove();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
 socket.on('state',(s:Snapshot)=>{if(!splashDismissed){pendingSnapshot=s;return;}renderState(s);});
 socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
-socket.on('disconnect',()=>toast('Connection lost. Reconnecting…'));
+window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement();}});
+socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement();toast('Connection lost. Reconnecting…');});
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
 void showSplash();
