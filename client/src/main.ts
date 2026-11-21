@@ -26,6 +26,7 @@ let lastFootstep = 0;
 let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
 let serverMe = { x: 3000, y: 2070 };
+let lastMovementAckAt = 0;
 let chatLines: string[] = [];
 let roleShown = false;
 let sceneRef: Estate | undefined;
@@ -309,7 +310,7 @@ function wireControls() {
   const stick=document.querySelector<HTMLElement>('#stick')!,knob=document.querySelector<HTMLElement>('#knob')!;let active=false;
   const move=(e:PointerEvent)=>{const r=stick.getBoundingClientRect();let dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2,d=Math.hypot(dx,dy),max=43;if(d>max){dx=dx/d*max;dy=dy/d*max;}joystick={x:dx/max,y:dy/max};knob.style.transform=`translate(${dx}px,${dy}px)`;};
   stick.addEventListener('pointerdown',e=>{active=true;stick.setPointerCapture(e.pointerId);move(e);});stick.addEventListener('pointermove',e=>{if(active)move(e);});
-  const stop=()=>{active=false;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement();};stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);stick.addEventListener('lostpointercapture',stop);
+  const stop=(e?:PointerEvent)=>{if(!active)return;e?.preventDefault();active=false;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement(true);};stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);stick.addEventListener('lostpointercapture',stop);
   document.querySelector('#use')!.addEventListener('click',()=>{const t=nearestTask();if(t)openTask(t);else toast('Move closer to an unfinished task.');haptic();});
   document.querySelector('#report')!.addEventListener('click',()=>{const b=nearestBody();if(b){socket.emit('report',b.id);tone(300);}else toast('No body nearby to report.');haptic();});
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
@@ -416,7 +417,7 @@ function updateHud(s: Snapshot | null) {
 function renderState(s: Snapshot) {
   hideMenuFrame();
   const prev=currentPhase;latest=s;const local=s.players.find(p=>p.id===myId);
-  if(local){serverMe.x=local.x;serverMe.y=local.y;if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}}
+  if(local){if(Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}}
   sceneRef?.syncState(s);
   if(s.phase==='LOBBY'){if(currentPhase!=='LOBBY')lobby(s);else updateLobby(s);}
   else if(s.phase==='PLAYING'){
@@ -427,7 +428,7 @@ function renderState(s: Snapshot) {
     if(currentPhase!=='MEETING'||currentMeetingEnds!==s.meeting?.endsAt){renderMeeting(s);tone(260,0.25);}currentPhase='MEETING';
     const timer=document.querySelector('#meeting-timer');if(timer&&s.meeting)timer.textContent=`Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s`;
   } else if(s.phase==='GAME_OVER'){
-    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><img class="victory-boat-art" src="${artUrl('escape_chopper_boat')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
+    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
   }
 }
 
@@ -465,13 +466,13 @@ class Estate extends Phaser.Scene {
       phaserLoadError=error instanceof Error?error.message:String(error);window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
     }
   }
-  stopMovement(){
-    if(!this.moving)return;
+  stopMovement(force=false){
+    if(!this.moving&&!force)return;
     this.moving=false;
     const sequence=++this.moveSequence;
     socket.emit('move',{x:0,y:0},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(sequence!==this.moveSequence||this.moving||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
-      serverMe.x=ack.x!;serverMe.y=ack.y!;me.x=ack.x!;me.y=ack.y!;
+      serverMe.x=ack.x!;serverMe.y=ack.y!;me.x=ack.x!;me.y=ack.y!;lastMovementAckAt=Date.now();
       this.actors.get(myId)?.setPosition(me.x,me.y);
     });
   }
@@ -506,7 +507,7 @@ class Estate extends Phaser.Scene {
     }
     for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
-      previous.push({x:p.x,y:p.y,time:now});if(previous.length>4)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
+      previous.push({x:p.x,y:p.y,time:now});if(previous.length>8)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
       a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
@@ -546,10 +547,10 @@ class Estate extends Phaser.Scene {
   }
   update(time:number,delta:number){
     if(!this.ready)return;
-    const now=performance.now(),renderAt=now-400;
+    const now=performance.now(),renderAt=now-120;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
-      if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
+      if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=(renderAt-left.time)/span;if(renderAt>right.time){const ahead=Math.min(180,renderAt-right.time)/1000,vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy),scale=speed>0?Math.min(1,370/speed):0;x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;}else{x=Phaser.Math.Linear(left.x,right.x,Phaser.Math.Clamp(t,0,1));y=Phaser.Math.Linear(left.y,right.y,Phaser.Math.Clamp(t,0,1));}}
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
       if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
@@ -559,10 +560,10 @@ class Estate extends Phaser.Scene {
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
     if(Math.hypot(x,y)<.12){x=0;y=0;}
-    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.025:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
+    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.14:0.22;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.08),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
+      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;lastMovementAckAt=Date.now();});this.lastEmit=time;}
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
@@ -578,9 +579,9 @@ socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
 socket.on('state',(s:Snapshot)=>{if(!splashDismissed){pendingSnapshot=s;return;}renderState(s);});
 socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
-window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement();}});
-socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement();toast('Connection lost. Reconnecting…');});
+window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement(true);}});
+socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);toast('Connection lost. Reconnecting…');});
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
 void showSplash();
