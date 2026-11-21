@@ -113,9 +113,7 @@ css += `
 /* Main menu uses the repository's transparent Sheet 5 artwork. */
 html, body { background: #100d17 url('/assets/vice-heist/menu_bg_art.png') center / cover fixed no-repeat !important; }
 body::before { content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(180deg, rgba(10,7,18,.48), rgba(10,7,18,.88)); }
-#app, #stage { position: relative; z-index: 1; }
-.brand::before { content: ''; display: block; width: min(58vw, 250px); height: 78px; margin: 0 auto 10px; background: url('/assets/vice-heist/logo_vice_heist.png') center / contain no-repeat; }
-.nav button, .nav a, .nav [role="button"] { background-image: url('/assets/vice-heist/btn_menu_host_join.png'); background-position: center; background-size: 100% 100%; background-repeat: no-repeat; }
+#app, #stage { z-index: 1; }
 `;
 write('css/menu.css', css);
 console.log('Prepared supplied menu assets and embedded-game bridge.');
