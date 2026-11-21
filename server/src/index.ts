@@ -323,7 +323,7 @@ io.on('connection', socket => {
   socket.on('move',(input:{x:number;y:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
-    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.25),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
+    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.08),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
     // A zero vector is an explicit release: advance no position and reset the
     // movement clock so the next press cannot inherit stale elapsed time.
     if(magnitude<0.12){player.lastMove=now;reply({ok:true,x:player.x,y:player.y});return;}
