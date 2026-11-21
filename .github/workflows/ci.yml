@@ -18,8 +18,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Inspect splash archive
-        run: unzip -Z1 vice-heist-splash.zip
+      - name: Inspect splash source
+        run: |
+          unzip -p vice-heist-splash.zip vice-heist-splash/src/lib/splash.ts
+          unzip -p vice-heist-splash.zip vice-heist-splash/src/routes/index.tsx
+          unzip -p vice-heist-splash.zip vice-heist-splash/src/routes/__root.tsx
+          unzip -p vice-heist-splash.zip vice-heist-splash/src/styles.css
+          echo '--- asset metadata ---'
+          unzip -Z1 vice-heist-splash.zip | grep -E '\.(png|jpg|svg)      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build client and server
+        run: npm run build
+      - name: Run server regression tests
+        run: npm test
+ | while read f; do unzip -p vice-heist-splash.zip "$f" | file -; done
+      - name: Extract splash assets for inspection
+        run: |
+          mkdir -p /tmp/splash-inspect
+          unzip -q vice-heist-splash.zip 'vice-heist-splash/public/img/*' -d /tmp/splash-inspect
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vice-heist-splash-assets
+          path: /tmp/splash-inspect/vice-heist-splash/public/img/
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Build client and server
