@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type { Snapshot, PublicPlayer, Task } from '../../shared/types';
 import './style.css';
+import { VICE_HEIST_ASSET_IDS, VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
 
 declare global {
   interface Window {
@@ -245,16 +246,20 @@ class Estate extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0; private moving = false; private moveSequence = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
+  private taskGlows = new Map<string, Phaser.GameObjects.Image>();
+  private corpseArt = new Map<string, Phaser.GameObjects.Image>();
+  private previousAlive = new Map<string, boolean>();
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
     for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
-    this.load.spritesheet('vice-creatures','/assets/characters/vice-creatures-atlas.png',{frameWidth:160,frameHeight:160});
+    for (const id of VICE_HEIST_ASSET_IDS) this.load.image(id,`/assets/vice-heist/${id}.png`);
   }
   create(){
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
-    for(let color=0;color<7;color++)this.anims.create({key:`creature-run-${color}`,frames:[{key:'vice-creatures',frame:7+color},{key:'vice-creatures',frame:14+color},{key:'vice-creatures',frame:21+color}],frameRate:7,repeat:-1});
+    const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
+    register('vh-walk-up',VICE_HEIST_WALK_UP,6);register('vh-walk-down',VICE_HEIST_WALK_DOWN,6);register('vh-kill-lunge',VICE_HEIST_KILL,10,0);register('vh-ghost-float',VICE_HEIST_GHOST,5);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
@@ -296,13 +301,13 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'vice-creatures',creatureColumn(local.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
-      a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
+    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+      a.setAlpha(local.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);if(!local.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>4)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving)a.setFlipX(p.x<previous[previous.length-2].x);
-      a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}}
+      a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
   }
@@ -342,7 +347,7 @@ class Estate extends Phaser.Scene {
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
-      if(player?.alive&&moving){const key=`creature-run-${creatureColumn(player.color)}`;if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame(creatureColumn(player.color));}
+      if(player?.alive&&moving){const dx=last.x-prev.x,dy=last.y-prev.y;const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
     const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
@@ -353,8 +358,8 @@ class Estate extends Phaser.Scene {
     const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.025:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey||!actor.anims.isPlaying)actor.play(runKey,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
-    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
+      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
+    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
     for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
