@@ -24,6 +24,7 @@ let muted = false;
 let lastFootstep = 0;
 let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
+let serverMe = { x: 3000, y: 2070 };
 let chatLines: string[] = [];
 let roleShown = false;
 let sceneRef: Estate | undefined;
@@ -201,7 +202,7 @@ function updateHud(s: Snapshot | null) {
 }
 function renderState(s: Snapshot) {
   const prev=currentPhase;latest=s;const local=s.players.find(p=>p.id===myId);
-  if(local){const d=Math.hypot(local.x-me.x,local.y-me.y);if(d>120){me.x=local.x;me.y=local.y;}else{me.x+=(local.x-me.x)*0.22;me.y+=(local.y-me.y)*0.22;}}
+  if(local){serverMe.x=local.x;serverMe.y=local.y;if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}}
   sceneRef?.syncState(s);
   if(s.phase==='LOBBY'){if(currentPhase!=='LOBBY')lobby(s);else updateLobby(s);}
   else if(s.phase==='PLAYING'){
@@ -218,7 +219,7 @@ function renderState(s: Snapshot) {
 
 class Estate extends Phaser.Scene {
   private actors = new Map<string, Phaser.GameObjects.Sprite>();
-  private remoteTargets = new Map<string,{x:number;y:number}>();
+  private remoteSamples = new Map<string,{x:number;y:number;time:number}[]>();
   private keys!: any;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0;
@@ -232,7 +233,7 @@ class Estate extends Phaser.Scene {
   create(){
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
-    for(let color=0;color<7;color++)this.anims.create({key:`creature-run-${color}`,frames:[{key:'vice-creatures',frame:7+color},{key:'vice-creatures',frame:14+color},{key:'vice-creatures',frame:21+color}],frameRate:9,repeat:-1});
+    for(let color=0;color<7;color++)this.anims.create({key:`creature-run-${color}`,frames:[{key:'vice-creatures',frame:7+color},{key:'vice-creatures',frame:14+color},{key:'vice-creatures',frame:21+color}],frameRate:7,repeat:-1});
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
@@ -265,26 +266,26 @@ class Estate extends Phaser.Scene {
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
     if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'vice-creatures',creatureColumn(local.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
-      a.setPosition(me.x,me.y);a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
+      a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
     }
     for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(p.id,created);}if(a){
-      const previous=this.remoteTargets.get(p.id),moving=!!previous&&Math.hypot(previous.x-p.x,previous.y-p.y)>2;
-      this.remoteTargets.set(p.id,{x:p.x,y:p.y});if(previous&&moving)a.setFlipX(p.x<previous.x);
-      a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}else{a.stop();a.setFrame(creatureColumn(p.color));}}
+      const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
+      previous.push({x:p.x,y:p.y,time:now});if(previous.length>4)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving)a.setFlipX(p.x<previous[previous.length-2].x);
+      a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}}
     }
-    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteTargets.delete(id);}
+    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
   }
   private setupVision(){this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';app.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d')||undefined;this.resizeVision();}
-  private resizeVision(){if(!this.visionCanvas)return;const dpr=Math.min(devicePixelRatio||1,2);this.visionCanvas.width=Math.max(1,Math.floor(this.scale.width*dpr));this.visionCanvas.height=Math.max(1,Math.floor(this.scale.height*dpr));this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
+  private resizeVision(){if(!this.visionCanvas)return;const dpr=Math.min(devicePixelRatio||1,2),width=window.innerWidth,height=window.innerHeight;this.visionCanvas.width=Math.max(1,Math.floor(width*dpr));this.visionCanvas.height=Math.max(1,Math.floor(height*dpr));this.visionCanvas.style.width=width+'px';this.visionCanvas.style.height=height+'px';this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
   private drawVision(time:number){
-    const ctx=this.visionCtx;if(!ctx||!this.visionCanvas)return;if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){ctx.clearRect(0,0,this.scale.width,this.scale.height);return;}if(time-this.lastVision<33)return;this.lastVision=time;
-    ctx.clearRect(0,0,this.scale.width,this.scale.height);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,this.scale.width,this.scale.height);
-    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,this.scale.width,this.scale.height);return;}
+    const ctx=this.visionCtx;if(!ctx||!this.visionCanvas)return;const width=window.innerWidth,height=window.innerHeight;if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){ctx.clearRect(0,0,width,height);return;}if(time-this.lastVision<33)return;this.lastVision=time;
+    ctx.clearRect(0,0,width,height);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,width,height);
+    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,width,height);return;}
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
     // Cast a uniform, deterministic fan directly against the binary collision mask.
     // Sparse pre-sampled edge rays created long slivers when adjacent mask pixels
     // contributed nearly-identical angles; the mask itself is the source of truth.
-    const rayCount=960,rayStep=2,cam=this.cameras.main,view=cam.worldView,rayAngles:number[]=[];
+    const rayCount=1080,rayStep=3,cam=this.cameras.main,view=cam.worldView,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
     for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
     for(const angle of rayAngles){
       const dx=Math.cos(angle),dy=Math.sin(angle);
@@ -298,24 +299,29 @@ class Estate extends Phaser.Scene {
         if(this.solid(me.x+dx*mid,me.y+dy*mid))blocked=mid;else clear=mid;
       }
       const wx=me.x+dx*clear,wy=me.y+dy*clear;
-      points.push({x:(wx-view.x)*cam.zoom+cam.x,y:(wy-view.y)*cam.zoom+cam.y});
+      points.push({x:rect.left+cam.x+(wx-view.x)*cam.zoom,y:rect.top+cam.y+(wy-view.y)*cam.zoom});
     }
-    const sx=(me.x-view.x)*cam.zoom+cam.x,sy=(me.y-view.y)*cam.zoom+cam.y;
+    const sx=rect.left+cam.x+(me.x-view.x)*cam.zoom,sy=rect.top+cam.y+(me.y-view.y)*cam.zoom;
     ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,1)';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
   }
   update(time:number,delta:number){
     if(!this.ready)return;
-    const blend=1-Math.exp(-Math.max(0,delta)/85);
-    for(const [id,target] of this.remoteTargets){const actor=this.actors.get(id);if(actor){actor.x+=(target.x-actor.x)*blend;actor.y+=(target.y-actor.y)*blend;}}
+    const now=performance.now(),renderAt=now-110;
+    for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
+      let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
+      if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
+      actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
+      if(player?.alive&&moving){const key=`creature-run-${creatureColumn(player.color)}`;if(actor.anims.currentAnim?.key!==key)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame(creatureColumn(player.color));}
+    }
     if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
     const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.drawVision(time);return;}
     if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
-    const len=Math.hypot(x,y)||1;
-    if(x||y){const step=370*Math.min(delta/1000,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
+    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.012:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
+    if(x||y){const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
       const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey)actor.play(runKey,true);}if(time-this.lastEmit>50){socket.emit('move',{x,y});this.lastEmit=time;}
-    }else{const actor=this.actors.get(myId);if(actor){actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
+    }else{const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
     this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
     for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
