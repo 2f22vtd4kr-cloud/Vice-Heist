@@ -213,8 +213,49 @@ function nearestBody(): PublicPlayer | undefined { return latest?.players.filter
 function nearestTarget(): PublicPlayer | undefined { return latest?.players.filter(p=>p.alive&&p.id!==myId).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<125).sort((a,b)=>a.d-b.d)[0]; }
 function openTask(task: Task) {
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML=`<div class="meetingbox taskbox"><p class="eyebrow">OCEAN DRIVE ESTATE · SECURE THE PROPERTY</p><h3>${escapeHtml(task.label)}</h3><p>Complete the operation to secure this estate objective.</p><div class="task-sequence">SYSTEM READY</div><button id="complete-task" class="primary">COMPLETE TASK</button><button id="cancel-task" class="textbtn">CANCEL</button></div>`;
-  document.querySelector('#complete-task')!.addEventListener('click',()=>{socket.emit('use');m.innerHTML='';tone(760);haptic();});document.querySelector('#cancel-task')!.addEventListener('click',()=>m.innerHTML='');
+  const art:Record<string,string>={vault:'task_vault_dial',server:'task_wires_server',helipad:'task_keycard_swipe',generator:'task_generator_breakers',dock:'task_boat_fuel',bar:'task_cocktail_mix',pool:'task_pool_valves',garage:'task_garage_scan'};
+  const image=art[task.id]||'task_garage_scan';
+  let interval=0,timeout=0,holdStarted=0,progress=0;
+  const cleanup=()=>{if(interval)window.clearInterval(interval);if(timeout)window.clearTimeout(timeout);};
+  const finish=()=>{cleanup();socket.emit('use');m.innerHTML='';tone(760);haptic();};
+  const status=(value:string)=>{const el=m.querySelector<HTMLElement>('#task-status');if(el)el.textContent=value;};
+  let puzzle='';
+  if(task.id==='vault')puzzle='<p>Enter the four-number combination in order: <b>2 · 7 · 4 · 1</b></p><div class="puzzle-pad">'+Array.from({length:10},(_,n)=>'<button data-digit="'+n+'">'+n+'</button>').join('')+'</div><p id="vault-entry">— — — —</p>';
+  else if(task.id==='server')puzzle='<p>Reconnect the four matching server leads. Select each color pair.</p><div class="wire-pairs">'+['red','blue','gold','teal'].map(c=>'<button data-wire="'+c+'" style="--wire:'+c+'">'+c.toUpperCase()+'</button>').join('')+'</div><p id="wire-count">0 / 4 connected</p>';
+  else if(task.id==='helipad')puzzle='<p>Swipe the VIP keycard across the reader at a steady speed.</p><div class="keycard-reader"><button id="swipe-card">⇢  SWIPE CARD</button></div>';
+  else if(task.id==='generator')puzzle='<p>Set the four breakers to match the safe power pattern.</p><div class="breaker-row">'+[0,1,2,3].map(n=>'<button data-breaker="'+n+'" aria-pressed="false">OFF</button>').join('')+'</div>';
+  else if(task.id==='dock')puzzle='<p>Hold the pump to fill the tank. Release when the gauge reaches 100%.</p><div class="fuel-meter"><i id="fuel-fill"></i></div><button id="fuel-hold">HOLD TO FUEL</button>';
+  else if(task.id==='bar')puzzle='<p>Mix the VIP order in the correct sequence: lime → ice → rum.</p><div class="ingredient-row">'+['lime','ice','rum'].map(x=>'<button data-ingredient="'+x+'">'+x.toUpperCase()+'</button>').join('')+'</div><p id="mix-count">0 / 3</p>';
+  else if(task.id==='pool')puzzle='<p>Balance filtration pressure in the green zone (68–76).</p><input id="pool-pressure" type="range" min="0" max="100" value="35"><p id="pool-value">35</p><button id="pool-lock">LOCK PRESSURE</button>';
+  else puzzle='<p>Run the diagnostic scan, then verify the vehicle report.</p><div class="scan-meter"><i id="scan-fill"></i></div><p id="scan-status">Scanner initializing…</p><button id="scan-verify" disabled>VERIFY SCAN</button>';
+  m.innerHTML='<div class="meetingbox taskbox art-task"><button id="task-close" class="panel-close" aria-label="Close task">×</button><p class="eyebrow">OCEAN DRIVE ESTATE · TASK '+(task.zone+1)+'</p><h3>'+escapeHtml(task.label)+'</h3><img class="task-art" src="'+artUrl(image)+'" alt=""><div class="puzzle-content">'+puzzle+'</div><p id="task-status" role="status">Complete the operation to secure this objective.</p><button id="cancel-task" class="textbtn">CANCEL</button></div>';
+  const close=()=>{cleanup();m.innerHTML='';};
+  m.querySelector('#task-close')?.addEventListener('click',close);
+  m.querySelector('#cancel-task')?.addEventListener('click',close);
+  if(task.id==='vault'){
+    let entered='';m.querySelectorAll<HTMLButtonElement>('[data-digit]').forEach(b=>b.addEventListener('click',()=>{if(entered.length>=4)return;entered+=b.dataset.digit;const out=m.querySelector('#vault-entry');if(out)out.textContent=entered.padEnd(4,'—').split('').join(' ');if(entered.length===4){if(entered==='2741')finish();else{entered='';status('Incorrect combination. Try again.');const out=m.querySelector('#vault-entry');if(out)out.textContent='— — — —';}}}));
+  }else if(task.id==='server'){
+    const chosen=new Set<string>();m.querySelectorAll<HTMLButtonElement>('[data-wire]').forEach(b=>b.addEventListener('click',()=>{const color=b.dataset.wire!;if(chosen.has(color))return;chosen.add(color);b.disabled=true;b.classList.add('connected');const out=m.querySelector('#wire-count');if(out)out.textContent=chosen.size+' / 4 connected';if(chosen.size===4)finish();}));
+  }else if(task.id==='helipad'){
+    const card=m.querySelector<HTMLButtonElement>('#swipe-card')!;let down:{x:number;time:number}|null=null;
+    card.addEventListener('pointerdown',e=>{down={x:e.clientX,time:performance.now()};card.setPointerCapture(e.pointerId);});
+    card.addEventListener('pointerup',e=>{if(!down)return;const dx=e.clientX-down.x,dt=performance.now()-down.time;down=null;if(dx>90&&dt>=250&&dt<=1200)finish();else status(dx<=90?'Swipe farther across the reader.':dt<250?'Too fast — try a steadier swipe.':'Too slow — try again.');});
+  }else if(task.id==='generator'){
+    const target=[true,false,true,true],state=[false,false,false,false];const paint=()=>{m.querySelectorAll<HTMLButtonElement>('[data-breaker]').forEach((b,i)=>{b.textContent=state[i]?'ON':'OFF';b.setAttribute('aria-pressed',String(state[i]));b.classList.toggle('on',state[i]);});};
+    m.querySelectorAll<HTMLButtonElement>('[data-breaker]').forEach(b=>b.addEventListener('click',()=>{const i=Number(b.dataset.breaker);state[i]=!state[i];paint();if(state.every((v,i)=>v===target[i]))finish();}));
+  }else if(task.id==='dock'){
+    const button=m.querySelector<HTMLButtonElement>('#fuel-hold')!,fill=m.querySelector<HTMLElement>('#fuel-fill')!;
+    button.addEventListener('pointerdown',e=>{button.setPointerCapture(e.pointerId);holdStarted=performance.now();interval=window.setInterval(()=>{progress=Math.min(100,(performance.now()-holdStarted)/20);fill.style.width=progress+'%';if(progress>=100){cleanup();status('Fuel tank full.');finish();}},40);});
+    const release=()=>{if(!interval)return;cleanup();if(progress<100)status('Keep holding until the gauge reaches 100%.');};button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);
+  }else if(task.id==='bar'){
+    const sequence=['lime','ice','rum'];let step=0;m.querySelectorAll<HTMLButtonElement>('[data-ingredient]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.ingredient===sequence[step]){b.disabled=true;step++;const out=m.querySelector('#mix-count');if(out)out.textContent=step+' / 3';if(step===3)finish();}else{step=0;m.querySelectorAll<HTMLButtonElement>('[data-ingredient]').forEach(x=>{x.disabled=false;});const out=m.querySelector('#mix-count');if(out)out.textContent='0 / 3';status('Wrong ingredient. Start the recipe again.');}}));
+  }else if(task.id==='pool'){
+    const slider=m.querySelector<HTMLInputElement>('#pool-pressure')!,value=m.querySelector('#pool-value')!;slider.addEventListener('input',()=>{value.textContent=slider.value;});m.querySelector('#pool-lock')?.addEventListener('click',()=>{const n=Number(slider.value);if(n>=68&&n<=76)finish();else status('Pressure is outside the green zone. Adjust and retry.');});
+  }else{
+    const fill=m.querySelector<HTMLElement>('#scan-fill')!,label=m.querySelector('#scan-status')!,verify=m.querySelector<HTMLButtonElement>('#scan-verify')!;
+    timeout=window.setTimeout(()=>{fill.style.width='100%';label.textContent='Diagnostic complete.';verify.disabled=false;},1600);
+    verify.addEventListener('click',finish);
+  }
 }
 function toast(message: string) { const el=document.querySelector('#toast');if(el)el.textContent=message; }
 function renderMeeting(s: Snapshot) {
