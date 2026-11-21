@@ -329,4 +329,4 @@ socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message
 socket.on('disconnect',()=>toast('Connection lost. Reconnecting…'));
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
-void showSplash();;
+void showSplash();
