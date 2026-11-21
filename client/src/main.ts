@@ -30,6 +30,7 @@ let sceneRef: Estate | undefined;
 let audio: AudioContext | undefined;
 let splashDismissed = false;
 let splashReady = false;
+let splashStarting = false;
 let pendingSnapshot: Snapshot | null = null;
 let pendingResumeNotice = '';
 
@@ -69,7 +70,8 @@ async function showSplash() {
   const button = document.querySelector<HTMLButtonElement>('#vh-splash');
   if (!button) return;
   button.addEventListener('click', () => {
-    if (!splashReady || splashDismissed) return;
+    if (!splashReady || splashDismissed || splashStarting) return;
+    splashStarting = true;
     button.classList.remove('vh-phase-ready');
     button.classList.add('vh-phase-entering');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
