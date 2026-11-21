@@ -172,3 +172,30 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .radar-player.down { opacity:.25; }
 @media (min-width:360px) { .controls { padding-left:12px; padding-right:12px; } .actions { grid-template-columns:repeat(3,60px); gap:6px; } .actions button { height:46px; min-width:0; font-size:9px; letter-spacing:.035em; } }
 @media (max-width:359px) { .objective { max-width:calc(100% - 28px); right:14px; } .radar { top:108px; left:14px; right:auto; } .controls { padding-left:10px; padding-right:10px; } .actions { grid-template-columns:repeat(2,64px); gap:6px; } .actions button { height:48px; } }
+
+
+/* Coordinated Vice Heist button art. SVG assets are optional until the art pack is installed. */
+.menu .primary,.meetingbox .primary {
+  background: #d99a55 url('/assets/ui/buttons/primary.svg') center / 100% 100% no-repeat;
+  border: 0;
+  box-shadow: 0 4px 14px #0007, inset 0 1px #ffffff38;
+}
+.menu .secondary,.meetingbox .secondary {
+  background: #262421 url('/assets/ui/buttons/secondary.svg') center / 100% 100% no-repeat;
+  border: 1px solid #ffffff20;
+  box-shadow: 0 4px 14px #0007;
+}
+.actions button {
+  background: #191a21 url('/assets/ui/buttons/secondary.svg') center / 100% 100% no-repeat;
+  border: 0;
+  border-radius: 16px;
+  text-shadow: 0 1px 3px #000;
+}
+.actions .danger {
+  background: #572b36 url('/assets/ui/buttons/danger.svg') center / 100% 100% no-repeat;
+  border: 0;
+}
+.hudtop button {
+  background: #17161d url('/assets/ui/buttons/icon.svg') center / 100% 100% no-repeat;
+  border: 0;
+}
