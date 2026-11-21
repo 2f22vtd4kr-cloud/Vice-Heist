@@ -160,21 +160,18 @@ class Estate extends Phaser.Scene {
       const canvas=document.createElement('canvas');canvas.width=2048;canvas.height=2048;const ctx=canvas.getContext('2d',{willReadFrequently:true});
       if(!ctx||image.width!==2048||image.height!==2048){throw new Error(`Collision mask ${i} must be 2048 × 2048.`);}
       ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,2048,2048).data;const bits=new Uint8Array((2048*2048+7)>>3);
-      for(let p=0,j=0;p<2048*2048;p++,j+=4)if(pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200)bits[p>>3]|=1<<(p&7);
-      this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
-    }
-    this.buildVisionEdges();
-  }
-  private buildVisionEdges(){
-    this.visionEdges=[];
-    for(let tileIndex=0;tileIndex<this.masks.length;tileIndex++){
-      const bits=this.masks[tileIndex],tileX=(tileIndex%4)*2048,tileY=Math.floor(tileIndex/4)*2048;
-      for(let y=1;y<2047;y++)for(let x=1;x<2047;x++){
-        const p=y*2048+x,solid=(bits[p>>3]&(1<<(p&7)))!==0;
-        if(!solid||((x+y)&7)!==0)continue;
-        const edge=!(bits[(p-1)>>3]&(1<<((p-1)&7)))||!(bits[(p+1)>>3]&(1<<((p+1)&7)))||!(bits[(p-2048)>>3]&(1<<((p-2048)&7)))||!(bits[(p+2048)>>3]&(1<<((p+2048)&7)));
+      const tileX=((i-1)%4)*2048,tileY=Math.floor((i-1)/4)*2048;
+      for(let p=0,j=0;p<2048*2048;p++,j+=4){
+        const solid=pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200;
+        if(!solid)continue;
+        bits[p>>3]|=1<<(p&7);
+        const x=p&2047,y=p>>11;
+        if(x===0||x===2047||y===0||y===2047||((x+y)&7)!==0)continue;
+        const left=j-4,right=j+4,up=j-8192,down=j+8192;
+        const edge=!(pixels[left]>200&&pixels[left+1]>200&&pixels[left+2]>200)||!(pixels[right]>200&&pixels[right+1]>200&&pixels[right+2]>200)||!(pixels[up]>200&&pixels[up+1]>200&&pixels[up+2]>200)||!(pixels[down]>200&&pixels[down+1]>200&&pixels[down+2]>200);
         if(edge)this.visionEdges.push({x:tileX+x+.5,y:tileY+y+.5});
       }
+      this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
     }
   }
   private solid(x:number,y:number):boolean{
