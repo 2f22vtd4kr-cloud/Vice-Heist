@@ -29,11 +29,11 @@ jobs:
       - name: Extract splash assets for inspection
         run: |
           mkdir -p /tmp/splash-inspect
-          unzip -q vice-heist-splash.zip 'vice-heist-splash/public/img/*' -d /tmp/splash-inspect
+          unzip -q vice-heist-splash.zip 'vice-heist-splash/public/img/*' 'vice-heist-splash/src/lib/splash.ts' 'vice-heist-splash/src/routes/index.tsx' 'vice-heist-splash/src/routes/__root.tsx' 'vice-heist-splash/src/styles.css' -d /tmp/splash-inspect
       - uses: actions/upload-artifact@v4
         with:
           name: vice-heist-splash-assets
-          path: /tmp/splash-inspect/vice-heist-splash/public/img/
+          path: /tmp/splash-inspect/vice-heist-splash/
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Build client and server
