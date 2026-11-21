@@ -5,16 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build && npm start",
-    "build": "npm run prepare:assets && npm run prepare:splash && npm run validate:assets && npm run typecheck && npm run build:client && npm run build:server",
+    "build": "npm run prepare:assets && npm run prepare:splash && npm run prepare:menu && npm run validate:assets && npm run typecheck && npm run build:client && npm run build:server",
     "build:client": "vite build --config client/vite.config.ts",
     "build:server": "tsc -p server/tsconfig.json",
     "start": "node dist/server/src/index.js",
-    "prestart": "npm run prepare:assets && npm run prepare:splash && npm run validate:assets",
+    "prestart": "npm run prepare:assets && npm run prepare:splash && npm run prepare:menu && npm run validate:assets",
     "typecheck": "tsc -p client/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
     "validate:assets": "node scripts/validate-assets.mjs",
     "test": "npm run build:server && node scripts/test-socket-ack-guard.mjs && node scripts/test-bot-navigation.mjs",
     "prepare:assets": "node scripts/prepare-art-assets.mjs",
-    "prepare:splash": "node scripts/prepare-splash-assets.mjs"
+    "prepare:splash": "node scripts/prepare-splash-assets.mjs",
+    "prepare:menu": "node scripts/prepare-menu-assets.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

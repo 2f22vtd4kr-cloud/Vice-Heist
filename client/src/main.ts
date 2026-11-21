@@ -124,8 +124,8 @@ function tone(frequency = 440, duration = 0.08) {
   try { audio ??= new AudioContext(); if (audio.state === 'suspended') void audio.resume(); const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.value=frequency;gain.gain.setValueAtTime(0.045,audio.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+duration);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration); } catch { /* audio is an enhancement */ }
 }
 function playerName() {
-  const name = (document.querySelector<HTMLInputElement>('#alias')?.value || 'Player').trim().slice(0,20) || 'Player';
-  localStorage.setItem('vh-name', name); groqKey = document.querySelector<HTMLInputElement>('#groq-key')?.value.trim() || ''; return name;
+  const name = (localStorage.getItem('vh-name') || 'Player').trim().slice(0,20) || 'Player';
+  groqKey = ''; return name;
 }
 function sendAiKey() { if (groqKey) socket.emit('ai:key', groqKey); }
 function rememberSession(r:{code:string;playerId:string;sessionKey:string}){roomCode=r.code;myId=r.playerId;resumeKey=r.sessionKey;sessionStorage.setItem('vh-room-code',roomCode);sessionStorage.setItem('vh-player-id',myId);sessionStorage.setItem('vh-session-key',resumeKey);}
@@ -133,11 +133,32 @@ function clearSession(){roomCode='';myId='';resumeKey='';sessionStorage.removeIt
 function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();const notice=r.error||'Previous session expired.';if(splashDismissed){menu();toast(notice);}else pendingResumeNotice=notice;}});}
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
-  show(`<main class="menu"><header class="menu-head"><div class="brand">VICE <span>HEIST</span></div><span class="menu-location">Ocean Drive · Miami</span></header><p class="eyebrow">Private estate · Security briefing</p><h1>Get in.<br>Get out.<br><em>Trust no one.</em></h1><p class="sub">A crew, a hidden Mole, and one estate full of unfinished business. Work together. Watch everyone.</p><section class="menu-form"><label for="alias">Call sign</label><input id="alias" maxlength="20" placeholder="Your name" value="${escapeHtml(localStorage.getItem('vh-name') || '')}"><label class="keylabel" for="groq-key">AI dialogue key <span>Optional</span></label><input id="groq-key" type="password" autocomplete="off" placeholder="Groq API key"><small class="key-note">Used for optional in-game dialogue only</small></section><div class="menu-actions"><button class="primary" id="solo">Play solo <span>↗</span></button><button class="secondary" id="create">Create private room</button></div><div class="join"><input id="code" maxlength="5" placeholder="Room code" aria-label="Room code"><button id="join">Join room</button></div><p class="foot">Multiplayer · Solo vs AI · Telegram mini app</p></main>`);
-  document.querySelector('#solo')!.addEventListener('click',()=>{haptic();tone(520);socket.emit('solo',{name:playerName(),initData:tg?.initData},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else alert(r.error||'Unable to start solo game.');});});
-  document.querySelector('#create')!.addEventListener('click',()=>{haptic();tone(520);socket.emit('create',{name:playerName(),initData:tg?.initData},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else alert(r.error||'Unable to create room.');});});
-  document.querySelector('#join')!.addEventListener('click',()=>{haptic();const code=document.querySelector<HTMLInputElement>('#code')!.value.toUpperCase().trim();socket.emit('join',{code,name:playerName(),initData:tg?.initData},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else alert(r.error||'Unable to join room.');});});
+  show('<iframe id="vh-menu-frame" class="vh-menu-frame" src="/menu/index.html" title="Vice Heist main menu" allow="fullscreen" loading="eager"></iframe>');
 }
+function handleMenuAction(detail: {action?:string;code?:string}) {
+  const name=playerName();
+  const done=(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{
+    if(r.ok){rememberSession(r);sendAiKey();}
+    else toast(r.error||'Unable to start that game.');
+  };
+  haptic(); tone(520);
+  if(detail.action==='quick-play') socket.emit('solo',{name,initData:tg?.initData},done);
+  else if(detail.action==='create-lobby') socket.emit('create',{name,initData:tg?.initData},done);
+  else if(detail.action==='join-lobby') {
+    const code=String(detail.code||'').toUpperCase().trim();
+    if(code.length!==5){toast('Room codes are 5 characters.');return;}
+    socket.emit('join',{code,name,initData:tg?.initData},done);
+  }
+}
+window.addEventListener('message',(event:MessageEvent)=>{
+  const frame=document.querySelector<HTMLIFrameElement>('#vh-menu-frame');
+  if(event.origin!==location.origin||event.source!==frame?.contentWindow||!event.data)return;
+  if(event.data.type==='viceheist:menu-action') handleMenuAction(event.data.detail||{});
+  else if(event.data.type==='viceheist:settings-changed') {
+    try { localStorage.setItem('vh-menu-settings',JSON.stringify(event.data.detail||{})); } catch { /* storage may be disabled */ }
+    window.dispatchEvent(new CustomEvent('viceheist:settings-changed',{detail:event.data.detail||{}}));
+  }
+});
 function lobby(s: Snapshot) {
   currentPhase='LOBBY';
   show(`<div class="lobby"><div class="topline">VICE HEIST <span>ROOM ${escapeHtml(s.code)}</span></div><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
