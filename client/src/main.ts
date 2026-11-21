@@ -151,7 +151,7 @@ class Estate extends Phaser.Scene {
     this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:2,repeat:0});
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));});sceneRef=this;
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.1));});sceneRef=this;
     if(latest)this.syncState(latest);
   }
   private loadMasks(){
@@ -187,7 +187,7 @@ class Estate extends Phaser.Scene {
     if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.58);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.58);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteTargets.get(p.id),moving=!!previous&&Math.hypot(previous.x-p.x,previous.y-p.y)>2;
       this.remoteTargets.set(p.id,{x:p.x,y:p.y});if(previous&&moving)a.setFlipX(p.x<previous.x);
       a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
