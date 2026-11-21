@@ -344,9 +344,9 @@ class Estate extends Phaser.Scene {
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
       if(player?.alive&&moving){const key=`creature-run-${creatureColumn(player.color)}`;if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame(creatureColumn(player.color));}
     }
-    if(!latest||latest.phase!=='PLAYING'){this.drawVision(time);return;}
-    const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.drawVision(time);return;}
-    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.drawVision(time);return;}
+    if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
+    const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
+    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
     if(Math.hypot(x,y)<.12){x=0;y=0;}
@@ -360,7 +360,7 @@ class Estate extends Phaser.Scene {
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
-  shutdown(){this.visionCanvas?.remove();sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.visionCanvas?.remove();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
