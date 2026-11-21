@@ -221,7 +221,7 @@ function openTask(task: Task) {
   const status=(value:string)=>{const el=m.querySelector<HTMLElement>('#task-status');if(el)el.textContent=value;};
   let puzzle='';
   if(task.id==='vault')puzzle='<p>Enter the four-number combination in order: <b>2 · 7 · 4 · 1</b></p><div class="puzzle-pad">'+Array.from({length:10},(_,n)=>'<button data-digit="'+n+'">'+n+'</button>').join('')+'</div><p id="vault-entry">— — — —</p>';
-  else if(task.id==='server')puzzle='<p>Reconnect the four matching server leads. Select each color pair.</p><div class="wire-pairs">'+['red','blue','gold','teal'].map(c=>'<button data-wire="'+c+'" style="--wire:'+c+'">'+c.toUpperCase()+'</button>').join('')+'</div><p id="wire-count">0 / 4 connected</p>';
+  else if(task.id==='server')puzzle='<p>Reconnect each matching server lead. Select a terminal on the left, then its matching terminal on the right.</p><div class="wire-grid"><div>'+['red','blue','gold','teal'].map(c=>'<button data-wire-left="'+c+'" style="--wire:'+c+'">●</button>').join('')+'</div><div>'+['teal','gold','red','blue'].map(c=>'<button data-wire-right="'+c+'" style="--wire:'+c+'">●</button>').join('')+'</div></div><p id="wire-count">0 / 4 connected</p>';
   else if(task.id==='helipad')puzzle='<p>Swipe the VIP keycard across the reader at a steady speed.</p><div class="keycard-reader"><button id="swipe-card">⇢  SWIPE CARD</button></div>';
   else if(task.id==='generator')puzzle='<p>Set the four breakers to match the safe power pattern.</p><div class="breaker-row">'+[0,1,2,3].map(n=>'<button data-breaker="'+n+'" aria-pressed="false">OFF</button>').join('')+'</div>';
   else if(task.id==='dock')puzzle='<p>Hold the pump to fill the tank. Release when the gauge reaches 100%.</p><div class="fuel-meter"><i id="fuel-fill"></i></div><button id="fuel-hold">HOLD TO FUEL</button>';
@@ -235,7 +235,7 @@ function openTask(task: Task) {
   if(task.id==='vault'){
     let entered='';m.querySelectorAll<HTMLButtonElement>('[data-digit]').forEach(b=>b.addEventListener('click',()=>{if(entered.length>=4)return;entered+=b.dataset.digit;const out=m.querySelector('#vault-entry');if(out)out.textContent=entered.padEnd(4,'—').split('').join(' ');if(entered.length===4){if(entered==='2741')finish();else{entered='';status('Incorrect combination. Try again.');const out=m.querySelector('#vault-entry');if(out)out.textContent='— — — —';}}}));
   }else if(task.id==='server'){
-    const chosen=new Set<string>();m.querySelectorAll<HTMLButtonElement>('[data-wire]').forEach(b=>b.addEventListener('click',()=>{const color=b.dataset.wire!;if(chosen.has(color))return;chosen.add(color);b.disabled=true;b.classList.add('connected');const out=m.querySelector('#wire-count');if(out)out.textContent=chosen.size+' / 4 connected';if(chosen.size===4)finish();}));
+    const matched=new Set<string>();let selected='';m.querySelectorAll<HTMLButtonElement>('[data-wire-left]').forEach(b=>b.addEventListener('click',()=>{if(matched.has(b.dataset.wireLeft!))return;selected=b.dataset.wireLeft!;m.querySelectorAll('[data-wire-left]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');status('Now select the matching terminal on the right.');}));m.querySelectorAll<HTMLButtonElement>('[data-wire-right]').forEach(b=>b.addEventListener('click',()=>{const color=b.dataset.wireRight!;if(!selected)return;if(color===selected){matched.add(color);b.disabled=true;const left=m.querySelector<HTMLButtonElement>('[data-wire-left="'+color+'"]');if(left)left.disabled=true;b.classList.add('connected');const out=m.querySelector('#wire-count');if(out)out.textContent=matched.size+' / 4 connected';selected='';if(matched.size===4)finish();}else{selected='';status('Wrong wire. Select a new pair.');m.querySelectorAll('[data-wire-left]').forEach(x=>x.classList.remove('selected'));}}));
   }else if(task.id==='helipad'){
     const card=m.querySelector<HTMLButtonElement>('#swipe-card')!;let down:{x:number;time:number}|null=null;
     card.addEventListener('pointerdown',e=>{down={x:e.clientX,time:performance.now()};card.setPointerCapture(e.pointerId);});
@@ -325,7 +325,7 @@ class Estate extends Phaser.Scene {
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
-    register('vh-walk-up',VICE_HEIST_WALK_UP,6);register('vh-walk-down',VICE_HEIST_WALK_DOWN,6);register('vh-kill-lunge',VICE_HEIST_KILL,10,0);register('vh-ghost-float',VICE_HEIST_GHOST,5);
+    register('vh-walk-up',VICE_HEIST_WALK_UP,8);register('vh-walk-down',VICE_HEIST_WALK_DOWN,8);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,6);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
@@ -428,7 +428,7 @@ class Estate extends Phaser.Scene {
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
-    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.x,p.y,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(p.y-1);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.x,p.y).setDepth(p.y-1);}
+    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.x,p.y,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.x,p.y).setDepth(9);}
     for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
