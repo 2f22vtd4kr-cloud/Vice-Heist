@@ -515,7 +515,7 @@ class Estate extends Phaser.Scene {
     // Render both the occlusion fan and the darkness layer in Phaser world space.
     // A DOM canvas overlay used a second camera transform and drifted out of alignment
     // with the collision mask whenever the mobile camera eased behind the player.
-    this.visionShape=this.make.graphics({x:0,y:0,add:false});
+    this.visionShape=this.add.graphics({x:0,y:0}).setVisible(false);
     this.visionShade=this.add.graphics().setDepth(20);
     this.visionShade.fillStyle(0x05070d,0.48);this.visionShade.fillRect(0,0,8192,4096);
     this.visionMask=this.visionShape.createGeometryMask();this.visionMask.invertAlpha=true;
