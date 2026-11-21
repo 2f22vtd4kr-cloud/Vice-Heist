@@ -441,7 +441,7 @@ class Estate extends Phaser.Scene {
   private taskGlows = new Map<string, Phaser.GameObjects.Image>();
   private corpseArt = new Map<string, Phaser.GameObjects.Image>();
   private previousAlive = new Map<string, boolean>();
-  private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
+  private masks: Uint8Array[] = []; private visionShape?: Phaser.GameObjects.Graphics; private visionShade?: Phaser.GameObjects.Graphics; private visionMask?: Phaser.Display.Masks.GeometryMask; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
     this.load.on('progress',(value:number)=>{phaserLoadProgress=Phaser.Math.Clamp(value,0,1);updateSplashProgress();});
@@ -458,7 +458,7 @@ class Estate extends Phaser.Scene {
     register('vh-walk-up',VICE_HEIST_WALK_UP,8);register('vh-walk-down',VICE_HEIST_WALK_DOWN,8);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,6);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();});sceneRef=this;
     if(latest)this.syncState(latest);
     phaserSceneReady=true;updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
     } catch(error) {
@@ -511,43 +511,47 @@ class Estate extends Phaser.Scene {
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
   }
-  private setupVision(){this.visionCanvas=document.createElement('canvas');this.visionCanvas.className='vision-layer';app.appendChild(this.visionCanvas);this.visionCtx=this.visionCanvas.getContext('2d')||undefined;this.resizeVision();}
-  private resizeVision(){if(!this.visionCanvas)return;const dpr=Math.min(devicePixelRatio||1,2),width=window.innerWidth,height=window.innerHeight;this.visionCanvas.width=Math.max(1,Math.floor(width*dpr));this.visionCanvas.height=Math.max(1,Math.floor(height*dpr));this.visionCanvas.style.width=width+'px';this.visionCanvas.style.height=height+'px';this.visionCtx?.setTransform(dpr,0,0,dpr,0,0);}
+  private setupVision(){
+    // Render both the occlusion fan and the darkness layer in Phaser world space.
+    // A DOM canvas overlay used a second camera transform and drifted out of alignment
+    // with the collision mask whenever the mobile camera eased behind the player.
+    this.visionShape=this.make.graphics({x:0,y:0,add:false});
+    this.visionShade=this.add.graphics().setDepth(20);
+    this.visionShade.fillStyle(0x05070d,0.48);this.visionShade.fillRect(0,0,8192,4096);
+    this.visionMask=this.visionShape.createGeometryMask();this.visionMask.invertAlpha=true;
+    this.visionShade.setMask(this.visionMask);
+    this.visionShade.setVisible(false);
+  }
   private drawVision(time:number){
-    const ctx=this.visionCtx;if(!ctx||!this.visionCanvas)return;const width=window.innerWidth,height=window.innerHeight;if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){ctx.clearRect(0,0,width,height);return;}if(time-this.lastVision<33)return;this.lastVision=time;
-    ctx.clearRect(0,0,width,height);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,width,height);
-    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,width,height);return;}
-    const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
-    // Cast a uniform, deterministic fan directly against the binary collision mask.
-    // Sparse pre-sampled edge rays created long slivers when adjacent mask pixels
-    // contributed nearly-identical angles; the mask itself is the source of truth.
-    const rayCount=720,rayStep=2,cam=this.cameras.main,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
-    for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
-    for(const angle of rayAngles){
-      const dx=Math.cos(angle),dy=Math.sin(angle);
-      let clear=0,blocked=radius;
+    const shape=this.visionShape,shade=this.visionShade;if(!shape||!shade)return;
+    if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown){shade.setVisible(false);return;}
+    if(time-this.lastVision<33)return;this.lastVision=time;
+    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){shade.setVisible(false);return;}
+    const actor=this.actors.get(myId),originX=actor?.x??me.x,originY=actor?.y??me.y;
+    const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
+    // Collision-mask rays are drawn in the same Phaser world coordinate system as
+    // the estate, so camera zoom/follow/viewport transforms are applied only once.
+    shape.clear();shape.fillStyle(0xffffff,1);shape.beginPath();shape.moveTo(originX,originY);
+    const rayCount=960,rayStep=2;
+    for(let i=0;i<rayCount;i++){
+      const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
+      let clear=radius,blockedAt=radius;
       for(let distance=rayStep;distance<=radius;distance+=rayStep){
-        if(this.solid(me.x+dx*distance,me.y+dy*distance)){blocked=distance;clear=distance-rayStep;break;}
-        clear=distance;
+        if(this.solid(originX+dx*distance,originY+dy*distance)){blockedAt=distance;clear=distance-rayStep;break;}
       }
-      for(let refine=0;refine<8&&blocked>clear;refine++){
-        const mid=(clear+blocked)*.5;
-        if(this.solid(me.x+dx*mid,me.y+dy*mid))blocked=mid;else clear=mid;
-      }
-      const wx=me.x+dx*clear,wy=me.y+dy*clear;
-      points.push({x:rect.left+cam.x+(wx-cam.scrollX)*cam.zoom,y:rect.top+cam.y+(wy-cam.scrollY)*cam.zoom});
+      if(blockedAt<radius){let low=clear,high=blockedAt;for(let refine=0;refine<8;refine++){const mid=(low+high)*.5;if(this.solid(originX+dx*mid,originY+dy*mid))high=mid;else low=mid;}clear=low;}
+      shape.lineTo(originX+dx*clear,originY+dy*clear);
     }
-    const sx=rect.left+cam.x+(me.x-cam.scrollX)*cam.zoom,sy=rect.top+cam.y+(me.y-cam.scrollY)*cam.zoom;
-    ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,1)';ctx.beginPath();ctx.moveTo(sx,sy);for(const p of points)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fill();ctx.globalCompositeOperation='source-over';
+    shape.closePath();shape.fillPath();shade.setVisible(true);
   }
   update(time:number,delta:number){
     if(!this.ready)return;
-    const now=performance.now(),renderAt=now-320;
+    const now=performance.now(),renderAt=now-400;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
-      if(player?.alive&&moving){const dx=last.x-prev.x,dy=last.y-prev.y;const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
+      if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
     const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
@@ -557,7 +561,7 @@ class Estate extends Phaser.Scene {
     if(Math.hypot(x,y)<.12){x=0;y=0;}
     const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.025:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
-    if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
+    if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.08),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
       const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
@@ -567,7 +571,7 @@ class Estate extends Phaser.Scene {
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
-  shutdown(){this.stopMovement();this.visionCanvas?.remove();sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.visionShade?.clearMask();this.visionShade?.destroy();this.visionShape?.destroy();this.visionMask?.destroy();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
