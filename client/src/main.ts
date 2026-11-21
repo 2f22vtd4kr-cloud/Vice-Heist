@@ -285,7 +285,7 @@ class Estate extends Phaser.Scene {
     // Cast a uniform, deterministic fan directly against the binary collision mask.
     // Sparse pre-sampled edge rays created long slivers when adjacent mask pixels
     // contributed nearly-identical angles; the mask itself is the source of truth.
-    const rayCount=1080,rayStep=3,cam=this.cameras.main,view=cam.worldView,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
+    const rayCount=540,rayStep=4,cam=this.cameras.main,view=cam.worldView,rect=this.game.canvas.getBoundingClientRect(),rayAngles:number[]=[];
     for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
     for(const angle of rayAngles){
       const dx=Math.cos(angle),dy=Math.sin(angle);
@@ -319,6 +319,7 @@ class Estate extends Phaser.Scene {
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
     const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.012:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
+    const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
       const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey)actor.play(runKey,true);}if(time-this.lastEmit>50){socket.emit('move',{x,y});this.lastEmit=time;}
     }else{const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
