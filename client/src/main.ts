@@ -28,12 +28,96 @@ let chatLines: string[] = [];
 let roleShown = false;
 let sceneRef: Estate | undefined;
 let audio: AudioContext | undefined;
+let splashDismissed = false;
+let splashReady = false;
+let splashStarting = false;
+let pendingSnapshot: Snapshot | null = null;
+let pendingResumeNotice = '';
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
 const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':0, '#f45b5b':1, '#54b7f2':2, '#a98af5':3, '#f0bd4b':4, '#e78b4e':4, '#b6cf5b':4, '#e4e7ec':5, '#f18dc3':6 };
 function creatureColumn(color: string): number { return CREATURE_COLOR_COLUMNS[color.toLowerCase()] ?? 5; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
 function show(html: string) { overlay.innerHTML = html; }
+
+const splashCrew = [
+  { id: 'purple', sprite: 'purple', kind: 'idle', x: 22, feetY: 66.5, h: 8.6, delay: -0.4 },
+  { id: 'red', sprite: 'red', kind: 'idle', x: 32, feetY: 69.5, h: 9.8, delay: -1.1 },
+  { id: 'teal', sprite: 'teal', kind: 'idle', x: 45, feetY: 72, h: 11.4, delay: 0 },
+  { id: 'blue', sprite: 'blue', kind: 'idle', x: 62, feetY: 67.5, h: 9.2, flip: true, delay: -0.7 },
+  { id: 'pink', sprite: 'pink', kind: 'idle', x: 78, feetY: 68, h: 8.6, flip: true, delay: -1.6 },
+  { id: 'grey', sprite: 'grey-sneak', kind: 'sneak', x: 47, feetY: 40.6, h: 4.6, delay: 0 },
+  { id: 'ghost', sprite: 'ghost', kind: 'ghost', x: 56, feetY: 51, h: 6.6, delay: 0 },
+] as const;
+const splashTips = ['Casing the estate…', 'Bribing the valet…', 'Looping the security cameras…', 'Cracking the vault…', 'Fuelling the getaway boat…', 'Checking who’s wearing a wire…'];
+
+async function showSplash() {
+  const crew = splashCrew.map(c =>
+    '<div class="vh-crew vh-crew-' + c.kind + '" style="left:' + c.x + '%;bottom:' + (100-c.feetY) + '%;height:' + c.h + '%;z-index:' + Math.round(c.feetY*10) + ';animation-delay:' + (Math.abs(c.delay)*.25) + 's">' +
+    '<img src="/splash/img/crew/' + c.sprite + '.png" alt="" draggable="false" style="transform:' + ('flip' in c && c.flip ? 'scaleX(-1)' : 'none') + ';animation-delay:' + c.delay + 's"></div>'
+  ).join('');
+  show([
+    '<main class="vh-viewport"><button id="vh-splash" class="vh-phone vh-phase-loading" type="button" aria-label="Vice Heist is loading">',
+    '<div class="vh-stage"><img class="vh-backdrop" src="/splash/img/estate.jpg" alt="Ocean Drive Estate at sunset, with a waterfront villa, rooftop helipad, garage, neon lounge, pool and getaway boat" fetchpriority="high" draggable="false">',
+    '<div class="vh-pool-glow" aria-hidden="true"></div>',
+    '<span class="vh-beacon" style="left:27.2%;top:23%;animation-delay:0s"></span><span class="vh-beacon" style="left:52.6%;top:24.6%;animation-delay:.35s"></span><span class="vh-beacon" style="left:2.6%;top:26.3%;animation-delay:.7s"></span><span class="vh-beacon" style="left:29.2%;top:28.5%;animation-delay:1.05s"></span>',
+    crew, '</div><div class="vh-shade" aria-hidden="true"></div><div class="vh-scanlines" aria-hidden="true"></div>',
+    '<header class="vh-logo"><span class="vh-logo-kicker">A crew of thieves. One rat.</span><h1><span class="vh-logo-vice">Vice</span><span class="vh-logo-heist">HEIST</span></h1><span class="vh-logo-place"><i></i>Ocean Drive Estate<i></i></span></header>',
+    '<footer class="vh-footer"><div id="vh-splash-panel" class="vh-loading" role="status"><div id="vh-splash-tip" class="vh-tip">Casing the estate…</div><div class="vh-bar"><div id="vh-splash-fill" class="vh-bar-fill" style="width:0%"></div></div><div id="vh-splash-pct" class="vh-pct">0%</div></div><p class="vh-tagline">Trust no one. Take everything.</p><p class="vh-version">Ocean Drive · Miami</p></footer>',
+    '<div class="vh-flash" aria-hidden="true"></div></button></main>'
+  ].join(''));
+
+  const button = document.querySelector<HTMLButtonElement>('#vh-splash');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    if (!splashReady || splashDismissed || splashStarting) return;
+    splashStarting = true;
+    button.classList.remove('vh-phase-ready');
+    button.classList.add('vh-phase-entering');
+    const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
+    if (panel) panel.innerHTML = '<strong class="vh-entering-title">You’re in.</strong><span class="vh-entering-copy">The crew is assembling…</span>';
+    window.setTimeout(() => {
+      splashDismissed = true;
+      const next = pendingSnapshot;
+      pendingSnapshot = null;
+      if (next) renderState(next);
+      else {
+        menu();
+        if (pendingResumeNotice) { toast(pendingResumeNotice); pendingResumeNotice = ''; }
+      }
+    }, 420);
+  });
+
+  const paths = ['/splash/img/estate.jpg'].concat(splashCrew.map(c => '/splash/img/crew/' + c.sprite + '.png'));
+  const started = Date.now();
+  let loaded = 0;
+  const updateProgress = () => {
+    const progress = Math.round(loaded / paths.length * 100);
+    const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
+    const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
+    const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
+    if (fill) fill.style.width = progress + '%';
+    if (pct) pct.textContent = progress + '%';
+    if (tip) tip.textContent = splashTips[Math.min(splashTips.length - 1, Math.floor(progress / 100 * splashTips.length))];
+  };
+  await Promise.all(paths.map(src => new Promise<void>(resolve => {
+    const image = new Image();
+    let settled = false;
+    const done = () => { if (settled) return; settled = true; loaded++; updateProgress(); resolve(); };
+    image.onload = done;
+    image.onerror = done;
+    image.src = src;
+    if (image.complete) queueMicrotask(done);
+  })));
+  await new Promise(resolve => window.setTimeout(resolve, Math.max(0, 900 - (Date.now() - started))));
+  splashReady = true;
+  button.classList.remove('vh-phase-loading');
+  button.classList.add('vh-phase-ready');
+  button.setAttribute('aria-label', 'Tap to start Vice Heist');
+  const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
+  if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
+}
+
 function tone(frequency = 440, duration = 0.08) {
   if (muted) return;
   try { audio ??= new AudioContext(); if (audio.state === 'suspended') void audio.resume(); const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.value=frequency;gain.gain.setValueAtTime(0.045,audio.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+duration);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration); } catch { /* audio is an enhancement */ }
@@ -45,7 +129,7 @@ function playerName() {
 function sendAiKey() { if (groqKey) socket.emit('ai:key', groqKey); }
 function rememberSession(r:{code:string;playerId:string;sessionKey:string}){roomCode=r.code;myId=r.playerId;resumeKey=r.sessionKey;sessionStorage.setItem('vh-room-code',roomCode);sessionStorage.setItem('vh-player-id',myId);sessionStorage.setItem('vh-session-key',resumeKey);}
 function clearSession(){roomCode='';myId='';resumeKey='';sessionStorage.removeItem('vh-room-code');sessionStorage.removeItem('vh-player-id');sessionStorage.removeItem('vh-session-key');socket.emit('leave');}
-function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();menu();toast(r.error||'Previous session expired.');}});}
+function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();const notice=r.error||'Previous session expired.';if(splashDismissed){menu();toast(notice);}else pendingResumeNotice=notice;}});}
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
   show(`<main class="menu"><header class="menu-head"><div class="brand">VICE <span>HEIST</span></div><span class="menu-location">Ocean Drive · Miami</span></header><p class="eyebrow">Private estate · Security briefing</p><h1>Get in.<br>Get out.<br><em>Trust no one.</em></h1><p class="sub">A crew, a hidden Mole, and one estate full of unfinished business. Work together. Watch everyone.</p><section class="menu-form"><label for="alias">Call sign</label><input id="alias" maxlength="20" placeholder="Your name" value="${escapeHtml(localStorage.getItem('vh-name') || '')}"><label class="keylabel" for="groq-key">AI dialogue key <span>Optional</span></label><input id="groq-key" type="password" autocomplete="off" placeholder="Groq API key"><small class="key-note">Used for optional in-game dialogue only</small></section><div class="menu-actions"><button class="primary" id="solo">Play solo <span>↗</span></button><button class="secondary" id="create">Create private room</button></div><div class="join"><input id="code" maxlength="5" placeholder="Room code" aria-label="Room code"><button id="join">Join room</button></div><p class="foot">Multiplayer · Solo vs AI · Telegram mini app</p></main>`);
@@ -241,10 +325,10 @@ class Estate extends Phaser.Scene {
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
-socket.on('state',(s:Snapshot)=>renderState(s));
+socket.on('state',(s:Snapshot)=>{if(!splashDismissed){pendingSnapshot=s;return;}renderState(s);});
 socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
 socket.on('disconnect',()=>toast('Connection lost. Reconnecting…'));
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
-menu();
+void showSplash();
