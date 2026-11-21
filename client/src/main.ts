@@ -137,14 +137,14 @@ class Estate extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
-  private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
+  private masks: Uint8Array[] = []; private visionEdges:{x:number;y:number}[]=[]; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
     for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
     this.load.spritesheet('crew','/assets/characters/balaclava-sheet.webp',{frameWidth:512,frameHeight:512});
   }
   create(){
-    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));
+    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.1));
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     this.anims.create({key:'idle',frames:this.anims.generateFrameNumbers('crew',{start:0,end:3}),frameRate:2,repeat:-1});
     this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:3,repeat:-1});
@@ -163,6 +163,19 @@ class Estate extends Phaser.Scene {
       for(let p=0,j=0;p<2048*2048;p++,j+=4)if(pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200)bits[p>>3]|=1<<(p&7);
       this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
     }
+    this.buildVisionEdges();
+  }
+  private buildVisionEdges(){
+    this.visionEdges=[];
+    for(let tileIndex=0;tileIndex<this.masks.length;tileIndex++){
+      const bits=this.masks[tileIndex],tileX=(tileIndex%4)*2048,tileY=Math.floor(tileIndex/4)*2048;
+      for(let y=1;y<2047;y++)for(let x=1;x<2047;x++){
+        const p=y*2048+x,solid=(bits[p>>3]&(1<<(p&7)))!==0;
+        if(!solid||((x+y)&7)!==0)continue;
+        const edge=!(bits[(p-1)>>3]&(1<<((p-1)&7)))||!(bits[(p+1)>>3]&(1<<((p+1)&7)))||!(bits[(p-2048)>>3]&(1<<((p-2048)&7)))||!(bits[(p+2048)>>3]&(1<<((p+2048)&7)));
+        if(edge)this.visionEdges.push({x:tileX+x+.5,y:tileY+y+.5});
+      }
+    }
   }
   private solid(x:number,y:number):boolean{
     if(x<0||y<0||x>=8192||y>=4096)return true;if(this.masks.length!==8)return true;
@@ -171,7 +184,7 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.58);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
     }
     for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
@@ -188,9 +201,13 @@ class Estate extends Phaser.Scene {
     ctx.clearRect(0,0,innerWidth,innerHeight);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,innerWidth,innerHeight);
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,innerWidth,innerHeight);return;}
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
-    const rayCount=1024,rayStep=3,cam=this.cameras.main,view=cam.worldView;
-    for(let i=0;i<rayCount;i++){
-      const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
+    const rayCount=640,rayStep=3,cam=this.cameras.main,view=cam.worldView,rayAngles:number[]=[];
+    for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
+    const radius2=radius*radius;
+    for(const edge of this.visionEdges){const ex=edge.x-me.x,ey=edge.y-me.y;if(ex*ex+ey*ey>radius2)continue;const angle=Math.atan2(ey,ex);rayAngles.push(angle-.0012,angle+.0012);}
+    rayAngles.sort((a,b)=>a-b);
+    for(const angle of rayAngles){
+      const dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=0,blocked=radius;
       for(let distance=rayStep;distance<=radius;distance+=rayStep){
         if(this.solid(me.x+dx*distance,me.y+dy*distance)){blocked=distance;clear=distance-rayStep;break;}
