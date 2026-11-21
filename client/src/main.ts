@@ -77,6 +77,7 @@ function updateSplashProgress() {
 function preloadMenuFrame(): Promise<void> {
   return new Promise((resolve, reject) => {
     const frame = document.createElement('iframe');
+    frame.id = 'vh-menu-frame';
     frame.className = 'vh-preloaded-menu';
     frame.title = 'Vice Heist main menu';
     frame.setAttribute('aria-hidden', 'true');
