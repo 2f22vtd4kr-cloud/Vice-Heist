@@ -1,0 +1,17 @@
+name: Inspect splash package
+on:
+  push:
+    branches: [inspect-splash-zip-20261121]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: List splash package contents
+        run: |
+          test -s vice-heist-splash.zip
+          unzip -Z1 vice-heist-splash.zip
+          echo '--- archive summary ---'
+          unzip -l vice-heist-splash.zip
