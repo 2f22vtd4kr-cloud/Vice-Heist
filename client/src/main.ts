@@ -41,6 +41,8 @@ const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':
 function creatureColumn(color: string): number { return CREATURE_COLOR_COLUMNS[color.toLowerCase()] ?? 5; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
 function show(html: string) { overlay.innerHTML = html; }
+const artUrl = (id: string) => `/assets/vice-heist/${id}.png`;
+function setButtonArt(id:string,asset:string){const image=document.querySelector<HTMLImageElement>(`#${id} .action-art`);if(image)image.src=artUrl(asset);}
 
 const splashCrew = [
   { id: 'purple', sprite: 'purple', kind: 'idle', x: 22, feetY: 66.5, h: 8.6, delay: -0.4 },
@@ -175,7 +177,7 @@ function updateLobby(s: Snapshot) {
 }
 function hud() {
   currentPhase='PLAYING';
-  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><button id="sound" aria-label="Toggle sound">♫</button></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div><div class="actions"><button id="use">USE</button><button id="report">REPORT</button><button id="emergency">EMERGENCY</button><button id="kill" class="danger">ELIMINATE</button><button id="sabotage" class="danger">LIGHTS</button></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
+  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><div class="hud-tools"><button id="map-toggle" aria-label="Open estate map"><img src="${artUrl('btn_map_toggle')}" alt=""></button><button id="settings-toggle" aria-label="Open settings"><img src="${artUrl('btn_settings')}" alt=""></button><button id="chat-toggle" aria-label="Open meeting chat"><img src="${artUrl('btn_chat_toggle')}" alt=""></button><button id="sound" aria-label="Toggle sound">♫</button></div></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div class="actions"><button id="use" aria-label="Use"><img class="action-art" src="${artUrl('btn_use_dim')}" alt=""><span>USE</span></button><button id="report" aria-label="Report"><img class="action-art" src="${artUrl('btn_report_dim')}" alt=""><span>REPORT</span></button><button id="emergency" aria-label="Emergency meeting"><img class="action-art" src="${artUrl('btn_emergency_call')}" alt=""><span>EMERGENCY</span></button><button id="kill" class="danger" aria-label="Eliminate"><img class="action-art" src="${artUrl('btn_kill_dim')}" alt=""><span>ELIMINATE</span></button><button id="sabotage" class="danger" aria-label="Sabotage"><img class="action-art" src="${artUrl('btn_sabotage_active')}" alt=""><span>LIGHTS</span></button></div><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
   wireControls(); updateHud(latest);
 }
 function wireControls() {
@@ -189,6 +191,9 @@ function wireControls() {
   document.querySelector('#kill')!.addEventListener('click',()=>{const p=nearestTarget();if(p){socket.emit('kill',p.id);tone(160);}else toast('No target in elimination range.');haptic();});
   document.querySelector('#sabotage')!.addEventListener('click',()=>{socket.emit('sabotage','lights');tone(220);haptic();});
   document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
+  document.querySelector('#map-toggle')!.addEventListener('click',()=>openMapOverlay());
+  document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
+  document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
 function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
@@ -215,11 +220,13 @@ function updateHud(s: Snapshot | null) {
     const players=s.players.map(p=>'<i class="radar-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" style="left:'+(p.x/8192*100)+'%;top:'+(p.y/4096*100)+'%;--marker:'+escapeHtml(p.color)+'"></i>').join('');
     radar.innerHTML=tasks+players;
   }
+  setButtonArt('use',local?.alive&&s.selfRole!=='MOLE'&&!!nearestTask()?'btn_use_active':'btn_use_dim');
+  setButtonArt('report',local?.alive&&!!nearestBody()?'btn_report_active':'btn_report_dim');
   const kill=document.querySelector<HTMLButtonElement>('#kill'),sab=document.querySelector<HTMLButtonElement>('#sabotage');
-  if(kill){kill.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil((s.selfCooldownUntil-Date.now())/1000));kill.disabled=!local?.alive||left>0;kill.textContent=left>0?`ELIM ${left}s`:'ELIMINATE';}
-  if(sab){sab.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil(((s.sabotage?.endsAt||0)-Date.now())/1000));sab.disabled=!local?.alive||left>0;sab.textContent=left>0?`LIGHTS ${left}s`:'LIGHTS';}
+  if(kill){kill.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil((s.selfCooldownUntil-Date.now())/1000));const ready=!!local?.alive&&left<=0&&!!nearestTarget();kill.disabled=!ready;setButtonArt('kill',ready?'btn_kill_active':'btn_kill_dim');kill.querySelector('span')!.textContent=left>0?`ELIM ${left}s`:'ELIMINATE';}
+  if(sab){sab.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil(((s.sabotage?.endsAt||0)-Date.now())/1000));sab.disabled=!local?.alive||left>0;sab.querySelector('span')!.textContent=left>0?`LIGHTS ${left}s`:'LIGHTS';}
   const report=document.querySelector<HTMLButtonElement>('#report');if(report)report.disabled=!local?.alive||!nearestBody();
-  const emergency=document.querySelector<HTMLButtonElement>('#emergency');if(emergency){const left=Math.max(0,Math.ceil((s.emergencyCooldownUntil-Date.now())/1000));emergency.disabled=!local?.alive||s.selfEmergencyUsed||left>0;emergency.textContent=s.selfEmergencyUsed?'USED':left>0?`CALL ${left}s`:'EMERGENCY';}
+  const emergency=document.querySelector<HTMLButtonElement>('#emergency');if(emergency){const left=Math.max(0,Math.ceil((s.emergencyCooldownUntil-Date.now())/1000));emergency.disabled=!local?.alive||s.selfEmergencyUsed||left>0;emergency.querySelector('span')!.textContent=s.selfEmergencyUsed?'USED':left>0?`CALL ${left}s`:'EMERGENCY';}
   const use=document.querySelector<HTMLButtonElement>('#use');if(use)use.disabled=!local?.alive||s.selfRole==='MOLE'||!nearestTask();
 }
 function renderState(s: Snapshot) {
