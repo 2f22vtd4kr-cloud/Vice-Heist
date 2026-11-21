@@ -35,6 +35,12 @@ let splashReady = false;
 let splashStarting = false;
 let pendingSnapshot: Snapshot | null = null;
 let pendingResumeNotice = '';
+let phaserLoadProgress = 0;
+let splashAssetProgress = 0;
+let menuAssetProgress = 0;
+let phaserSceneReady = false;
+let phaserLoadError = '';
+let menuFrame: HTMLIFrameElement | null = null;
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
 const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':0, '#f45b5b':1, '#54b7f2':2, '#a98af5':3, '#f0bd4b':4, '#e78b4e':4, '#b6cf5b':4, '#e4e7ec':5, '#f18dc3':6 };
@@ -55,26 +61,88 @@ const splashCrew = [
 ] as const;
 const splashTips = ['Casing the estate…', 'Bribing the valet…', 'Looping the security cameras…', 'Cracking the vault…', 'Fuelling the getaway boat…', 'Checking who’s wearing a wire…'];
 
+function updateSplashProgress() {
+  const progress = Math.min(99, Math.floor((phaserLoadProgress * .68 + splashAssetProgress * .10 + menuAssetProgress * .17 + (phaserSceneReady ? .05 : 0)) * 100));
+  const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
+  const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
+  const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
+  if (fill) fill.style.width = progress + '%';
+  if (pct) pct.textContent = progress + '%';
+  if (tip) tip.textContent = phaserLoadProgress < 1 ? 'Loading estate and collision data…' :
+    splashAssetProgress < 1 ? 'Preparing the crew…' :
+    menuAssetProgress < 1 ? 'Setting up the main menu…' :
+    !phaserSceneReady ? 'Finalising the game world…' : 'All systems ready.';
+}
+
+function preloadMenuFrame(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement('iframe');
+    frame.className = 'vh-preloaded-menu';
+    frame.title = 'Vice Heist main menu';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.tabIndex = -1;
+    frame.loading = 'eager';
+    menuFrame = frame;
+    const timeout = window.setTimeout(() => reject(new Error('Main menu did not finish loading in time.')), 45_000);
+    frame.addEventListener('error', () => { window.clearTimeout(timeout); reject(new Error('Could not load the main menu.')); }, { once: true });
+    frame.addEventListener('load', async () => {
+      try {
+        const doc = frame.contentDocument;
+        const menuRoot = doc?.querySelector<HTMLElement>('#app');
+        const stage = doc?.querySelector<HTMLElement>('#stage');
+        if (!doc || !menuRoot || !stage) throw new Error('Main menu document is incomplete.');
+        if (!menuRoot.classList.contains('is-ready') || stage.inert) throw new Error('Main menu scripts did not initialise.');
+        const images = Array.from(doc.images);
+        let decodedImages = 0;
+        menuAssetProgress = .05;
+        updateSplashProgress();
+        await Promise.all(images.map(async image => {
+          if (!image.complete) await new Promise<void>((done, fail) => {
+            image.addEventListener('load', () => done(), { once: true });
+            image.addEventListener('error', () => fail(new Error('A main menu image failed to load: ' + image.src)), { once: true });
+          });
+          if (image.naturalWidth === 0) throw new Error('A main menu image failed to load: ' + image.src);
+          if (typeof image.decode === 'function') await image.decode();
+          decodedImages++;
+          menuAssetProgress = .05 + .85 * (decodedImages / Math.max(1, images.length));
+          updateSplashProgress();
+        }));
+        if (doc.fonts?.ready) await doc.fonts.ready;
+        await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+        menuAssetProgress = 1;
+        updateSplashProgress();
+        window.clearTimeout(timeout);
+        resolve();
+      } catch (error) {
+        window.clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }, { once: true });
+    app.insertBefore(frame, overlay);
+    frame.src = '/menu/index.html';
+  });
+}
+
 async function showSplash() {
   const crew = splashCrew.map(c =>
     '<div class="vh-crew vh-crew-' + c.kind + '" style="left:' + c.x + '%;bottom:' + (100-c.feetY) + '%;height:' + c.h + '%;z-index:' + Math.round(c.feetY*10) + ';animation-delay:' + (Math.abs(c.delay)*.25) + 's">' +
     '<img src="/splash/img/crew/' + c.sprite + '.png" alt="" draggable="false" style="transform:' + ('flip' in c && c.flip ? 'scaleX(-1)' : 'none') + ';animation-delay:' + c.delay + 's"></div>'
   ).join('');
   show([
-    '<main class="vh-viewport"><button id="vh-splash" class="vh-phone vh-phase-loading" type="button" aria-label="Vice Heist is loading">',
+    '<main class="vh-viewport"><button id="vh-splash" class="vh-phone vh-phase-loading" type="button" aria-label="Vice Heist is loading" disabled>',
     '<div class="vh-stage"><img class="vh-backdrop" src="/splash/img/estate.jpg" alt="Ocean Drive Estate at sunset, with a waterfront villa, rooftop helipad, garage, neon lounge, pool and getaway boat" fetchpriority="high" draggable="false">',
     '<div class="vh-pool-glow" aria-hidden="true"></div>',
     '<span class="vh-beacon" style="left:27.2%;top:23%;animation-delay:0s"></span><span class="vh-beacon" style="left:52.6%;top:24.6%;animation-delay:.35s"></span><span class="vh-beacon" style="left:2.6%;top:26.3%;animation-delay:.7s"></span><span class="vh-beacon" style="left:29.2%;top:28.5%;animation-delay:1.05s"></span>',
     crew, '</div><div class="vh-shade" aria-hidden="true"></div><div class="vh-scanlines" aria-hidden="true"></div>',
     '<header class="vh-logo"><span class="vh-logo-kicker">A crew of thieves. One rat.</span><h1><span class="vh-logo-vice">Vice</span><span class="vh-logo-heist">HEIST</span></h1><span class="vh-logo-place"><i></i>Ocean Drive Estate<i></i></span></header>',
-    '<footer class="vh-footer"><div id="vh-splash-panel" class="vh-loading" role="status"><div id="vh-splash-tip" class="vh-tip">Casing the estate…</div><div class="vh-bar"><div id="vh-splash-fill" class="vh-bar-fill" style="width:0%"></div></div><div id="vh-splash-pct" class="vh-pct">0%</div></div><p class="vh-tagline">Trust no one. Take everything.</p><p class="vh-version">Ocean Drive · Miami</p></footer>',
+    '<footer class="vh-footer"><div id="vh-splash-panel" class="vh-loading" role="status"><div id="vh-splash-tip" class="vh-tip">Loading the estate…</div><div class="vh-bar"><div id="vh-splash-fill" class="vh-bar-fill" style="width:0%"></div></div><div id="vh-splash-pct" class="vh-pct">0%</div></div><p class="vh-tagline">Trust no one. Take everything.</p><p class="vh-version">Ocean Drive · Miami</p></footer>',
     '<div class="vh-flash" aria-hidden="true"></div></button></main>'
   ].join(''));
 
   const button = document.querySelector<HTMLButtonElement>('#vh-splash');
   if (!button) return;
   button.addEventListener('click', () => {
-    if (!splashReady || splashDismissed || splashStarting) return;
+    if (!splashReady || splashDismissed || splashStarting || phaserLoadError) return;
     splashStarting = true;
     button.classList.remove('vh-phase-ready');
     button.classList.add('vh-phase-entering');
@@ -84,42 +152,85 @@ async function showSplash() {
       splashDismissed = true;
       const next = pendingSnapshot;
       pendingSnapshot = null;
-      if (next) renderState(next);
-      else {
+      if (next) {
+        menuFrame?.classList.remove('vh-menu-frame');
+        menuFrame?.classList.add('vh-preloaded-menu');
+        overlay.innerHTML = '';
+        renderState(next);
+      } else {
         menu();
         if (pendingResumeNotice) { toast(pendingResumeNotice); pendingResumeNotice = ''; }
       }
     }, 420);
   });
 
+  updateSplashProgress();
   const paths = ['/splash/img/estate.jpg'].concat(splashCrew.map(c => '/splash/img/crew/' + c.sprite + '.png'));
-  const started = Date.now();
   let loaded = 0;
-  const updateProgress = () => {
-    const progress = Math.round(loaded / paths.length * 100);
+  const splashImages = Promise.all(paths.map(src => new Promise<void>((resolve, reject) => {
+    const image = new Image();
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      loaded++;
+      splashAssetProgress = loaded / paths.length;
+      updateSplashProgress();
+      resolve();
+    };
+    image.onload = done;
+    image.onerror = () => reject(new Error('Splash artwork failed to load: ' + src));
+    image.src = src;
+    if (image.complete && image.naturalWidth > 0) queueMicrotask(done);
+  })));
+
+  const gameReady = new Promise<void>((resolve, reject) => {
+    if (phaserSceneReady) { resolve(); return; }
+    if (phaserLoadError) { reject(new Error(phaserLoadError)); return; }
+    const ready = () => { cleanup(); resolve(); };
+    const failed = (event: Event) => {
+      cleanup();
+      const detail = (event as CustomEvent<string>).detail;
+      reject(new Error(detail || phaserLoadError || 'The game world failed to initialise.'));
+    };
+    const cleanup = () => {
+      window.removeEventListener('vh:game-ready', ready);
+      window.removeEventListener('vh:game-error', failed);
+      window.clearTimeout(timeout);
+    };
+    const timeout = window.setTimeout(() => { cleanup(); reject(new Error('The game world took too long to initialise.')); }, 90_000);
+    window.addEventListener('vh:game-ready', ready, { once: true });
+    window.addEventListener('vh:game-error', failed, { once: true });
+  });
+
+  try {
+    await Promise.all([splashImages, preloadMenuFrame(), gameReady]);
+    if (phaserLoadError) throw new Error(phaserLoadError);
+    splashReady = true;
+    updateSplashProgress();
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
     const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
     const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
-    if (fill) fill.style.width = progress + '%';
-    if (pct) pct.textContent = progress + '%';
-    if (tip) tip.textContent = splashTips[Math.min(splashTips.length - 1, Math.floor(progress / 100 * splashTips.length))];
-  };
-  await Promise.all(paths.map(src => new Promise<void>(resolve => {
-    const image = new Image();
-    let settled = false;
-    const done = () => { if (settled) return; settled = true; loaded++; updateProgress(); resolve(); };
-    image.onload = done;
-    image.onerror = done;
-    image.src = src;
-    if (image.complete) queueMicrotask(done);
-  })));
-  await new Promise(resolve => window.setTimeout(resolve, Math.max(0, 900 - (Date.now() - started))));
-  splashReady = true;
-  button.classList.remove('vh-phase-loading');
-  button.classList.add('vh-phase-ready');
-  button.setAttribute('aria-label', 'Tap to start Vice Heist');
-  const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
-  if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
+    if (fill) fill.style.width = '100%';
+    if (pct) pct.textContent = '100%';
+    if (tip) tip.textContent = 'All systems ready.';
+    button.disabled = false;
+    button.classList.remove('vh-phase-loading');
+    button.classList.add('vh-phase-ready');
+    button.setAttribute('aria-label', 'Tap to start Vice Heist');
+    const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
+    if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
+  } catch (error) {
+    phaserLoadError = error instanceof Error ? error.message : String(error);
+    const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
+    const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
+    const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
+    if (pct) pct.textContent = 'ERR';
+    if (tip) tip.textContent = 'Loading failed. Refresh to retry.';
+    const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
+    if (panel) panel.innerHTML = '<strong class="vh-entering-title">Unable to load the game.</strong><span class="vh-entering-copy">' + escapeHtml(phaserLoadError) + ' · Refresh to retry.</span>';
+    console.error('[Vice Heist] Startup preload failed:', error);
+  }
 }
 
 function tone(frequency = 440, duration = 0.08) {
@@ -136,7 +247,13 @@ function clearSession(){roomCode='';myId='';resumeKey='';sessionStorage.removeIt
 function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();const notice=r.error||'Previous session expired.';if(splashDismissed){menu();toast(notice);}else pendingResumeNotice=notice;}});}
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
-  show('<iframe id="vh-menu-frame" class="vh-menu-frame" src="/menu/index.html" title="Vice Heist main menu" allow="fullscreen" loading="eager"></iframe>');
+  overlay.innerHTML='';
+  if (!menuFrame) { show('<div class="menu"><h1>Vice Heist</h1><p>The main menu did not preload. Refresh to try again.</p></div>'); return; }
+  menuFrame.classList.remove('vh-preloaded-menu');
+  menuFrame.classList.add('vh-menu-frame');
+  menuFrame.removeAttribute('aria-hidden');
+  menuFrame.tabIndex=0;
+  menuFrame.focus();
 }
 function handleMenuAction(detail: {action?:string;code?:string}) {
   const name=playerName();
@@ -318,10 +435,14 @@ class Estate extends Phaser.Scene {
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
+    this.load.on('progress',(value:number)=>{phaserLoadProgress=Phaser.Math.Clamp(value,0,1);updateSplashProgress();});
+    this.load.on('loaderror',(file:any)=>{phaserLoadError='Failed to load game asset: '+file.key+' ('+file.src+')';window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));});
+    this.load.once('complete',()=>{phaserLoadProgress=1;updateSplashProgress();});
     for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
     for (const id of VICE_HEIST_ASSET_IDS) this.load.image(id,`/assets/vice-heist/${id}.png`);
   }
   create(){
+    try {
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
@@ -330,6 +451,10 @@ class Estate extends Phaser.Scene {
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
     if(latest)this.syncState(latest);
+    phaserSceneReady=true;updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
+    } catch(error) {
+      phaserLoadError=error instanceof Error?error.message:String(error);window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
+    }
   }
   stopMovement(){
     if(!this.moving)return;
