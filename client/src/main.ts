@@ -201,7 +201,7 @@ class Estate extends Phaser.Scene {
     const rayCount=640,rayStep=3,cam=this.cameras.main,view=cam.worldView,rayAngles:number[]=[];
     for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
     const radius2=radius*radius;
-    for(const edge of this.visionEdges){const ex=edge.x-me.x,ey=edge.y-me.y;if(ex*ex+ey*ey>radius2)continue;const angle=Math.atan2(ey,ex);rayAngles.push(angle-.0012,angle+.0012);}
+    for(const edge of this.visionEdges){const ex=edge.x-me.x,ey=edge.y-me.y;if(ex*ex+ey*ey>radius2)continue;const angle=(Math.atan2(ey,ex)+Math.PI*2)%(Math.PI*2);rayAngles.push((angle-.0012+Math.PI*2)%(Math.PI*2),(angle+.0012)%(Math.PI*2));}
     rayAngles.sort((a,b)=>a-b);
     for(const angle of rayAngles){
       const dx=Math.cos(angle),dy=Math.sin(angle);
