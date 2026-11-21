@@ -561,3 +561,10 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .votelist .vote-card span{z-index:1}
 .votelist .vote-card:disabled{opacity:.35}
 @media(max-width:420px){.hudtop{left:10px;right:10px}.hud-tools button{width:30px;height:30px}.objective{max-width:70vw;font-size:10px}.controls{padding:0 10px 12px}.stick{width:118px;height:118px;flex-basis:118px}.knob{width:48px;height:48px;left:35px;top:35px}}
+
+
+.wire-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:10px 4px}
+.wire-grid>div{display:grid;gap:8px}
+.wire-grid button{font-size:24px;color:var(--wire);text-shadow:0 0 8px var(--wire)}
+.wire-grid button.selected{outline:2px solid #fff;outline-offset:2px}
+.wire-grid button.connected{background:#245b49;color:#a4f4d3}
