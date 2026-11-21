@@ -92,13 +92,20 @@ function preloadMenuFrame(): Promise<void> {
         const stage = doc?.querySelector<HTMLElement>('#stage');
         if (!doc || !menuRoot || !stage) throw new Error('Main menu document is incomplete.');
         if (!menuRoot.classList.contains('is-ready') || stage.inert) throw new Error('Main menu scripts did not initialise.');
-        await Promise.all(Array.from(doc.images).map(async image => {
+        const images = Array.from(doc.images);
+        let decodedImages = 0;
+        menuAssetProgress = .05;
+        updateSplashProgress();
+        await Promise.all(images.map(async image => {
           if (!image.complete) await new Promise<void>((done, fail) => {
             image.addEventListener('load', () => done(), { once: true });
             image.addEventListener('error', () => fail(new Error('A main menu image failed to load: ' + image.src)), { once: true });
           });
           if (image.naturalWidth === 0) throw new Error('A main menu image failed to load: ' + image.src);
           if (typeof image.decode === 'function') await image.decode();
+          decodedImages++;
+          menuAssetProgress = .05 + .85 * (decodedImages / Math.max(1, images.length));
+          updateSplashProgress();
         }));
         if (doc.fonts?.ready) await doc.fonts.ready;
         await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
@@ -218,8 +225,7 @@ async function showSplash() {
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
     const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
     const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
-    if (fill) fill.style.width = '100%';
-    if (pct) pct.textContent = '!';
+    if (pct) pct.textContent = 'ERR';
     if (tip) tip.textContent = 'Loading failed. Refresh to retry.';
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<strong class="vh-entering-title">Unable to load the game.</strong><span class="vh-entering-copy">' + escapeHtml(phaserLoadError) + ' · Refresh to retry.</span>';
