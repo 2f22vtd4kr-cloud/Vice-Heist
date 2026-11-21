@@ -24,7 +24,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; host: string; emergencyCooldownUntil: number; suspicions: Map<string, number>;
+  lastTick: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>;
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -91,7 +91,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:TASKS.map(t=>({...t,done:false})),lastTick:Date.now(),host:'',emergencyCooldownUntil:0,suspicions:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:TASKS.map(t=>({...t,done:false})),lastTick:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -101,9 +101,9 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 }
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
-  r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;
-  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();
-  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.cooldownUntil=0;p.emergencyUsed=false;p.role='CREW';});
+  r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
+  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
+  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
@@ -121,6 +121,7 @@ type BotRoute = { key:string; goalX:number; goalY:number; path:number[]; index:n
 const botRoutes = new Map<string,BotRoute>();
 const botTaskAssignments = new Map<string,string>();
 const botHuntTargets = new Map<string,{targetId:string; selectedAt:number}>();
+const ghostWanderTargets = new Map<string,{x:number;y:number;selectedAt:number}>();
 const botNeighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
 function cellCenter(index:number){return{x:(index%BOT_COLS+.5)*BOT_CELL,y:(Math.floor(index/BOT_COLS)+.5)*BOT_CELL};}
 function cellAt(x:number,y:number){return Math.max(0,Math.min(BOT_ROWS-1,Math.floor(y/BOT_CELL)))*BOT_COLS+Math.max(0,Math.min(BOT_COLS-1,Math.floor(x/BOT_CELL)));}
@@ -214,6 +215,16 @@ async function botReply(r: Room, sender: Player, text: string) {
 function botsTick(r: Room, now: number) {
   if(r.phase==='PLAYING'){
     const alive=[...r.players.values()].filter(p=>p.alive);
+    // Eliminated NPCs remain active as ghosts: they wander the estate but cannot
+    // interact with tasks, report bodies, or eliminate living players.
+    for(const ghost of [...r.players.values()].filter(p=>p.bot&&!p.alive)){
+      let target=ghostWanderTargets.get(ghost.id);
+      if(!target||Math.hypot(target.x-ghost.x,target.y-ghost.y)<70||now-target.selectedAt>9_000){
+        const waypoint=TASKS[Math.floor(Math.random()*TASKS.length)];
+        target={x:waypoint.x,y:waypoint.y,selectedAt:now};ghostWanderTargets.set(ghost.id,target);
+      }
+      moveBotToward(ghost,target,52,'ghost-wander',now);
+    }
     for(const bot of alive.filter(p=>p.bot)){
       if(bot.role==='CREW'){
         let task=r.tasks.find(t=>!t.done&&t.id===botTaskAssignments.get(bot.id));
@@ -255,7 +266,7 @@ function botsTick(r: Room, now: number) {
         }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<.008){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
-        if(victim&&now>bot.cooldownUntil&&Math.random()<.10){
+        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<.10){
           victim.alive=false;victim.reported=false;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
@@ -312,7 +323,7 @@ io.on('connection', socket => {
   socket.on('move',(input:{x:number;y:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
-    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.12),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
+    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.25),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
     // A zero vector is an explicit release: advance no position and reset the
     // movement clock so the next press cannot inherit stale elapsed time.
     if(magnitude<0.12){player.lastMove=now;reply({ok:true,x:player.x,y:player.y});return;}
@@ -321,7 +332,7 @@ io.on('connection', socket => {
     reply({ok:true,x:player.x,y:player.y});
   });
   socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
-  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<player.cooldownUntil)return;const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.alive=false;t.reported=false;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
+  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.alive=false;t.reported=false;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.x-player.x,t.y-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
   socket.on('emergency',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;if(player.emergencyUsed||Date.now()<room.emergencyCooldownUntil){socket.emit('notice','Emergency protocol is unavailable right now.');return;}player.emergencyUsed=true;room.emergencyCooldownUntil=Date.now()+60_000;beginMeeting(room,`${player.name} called an emergency meeting.`);});
