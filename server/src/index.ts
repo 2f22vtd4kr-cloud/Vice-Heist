@@ -24,7 +24,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>;
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>;
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -91,7 +91,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:TASKS.map(t=>({...t,done:false})),lastTick:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:TASKS.map(t=>({...t,done:false})),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -341,5 +341,5 @@ io.on('connection', socket => {
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
   socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
-setInterval(()=>{const now=Date.now();for(const r of rooms.values()){botsTick(r,now);if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase!=='LOBBY')emit(r);}},250);
+setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=100){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));
