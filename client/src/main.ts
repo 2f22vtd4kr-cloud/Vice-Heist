@@ -246,6 +246,13 @@ function sendAiKey() { if (groqKey) socket.emit('ai:key', groqKey); }
 function rememberSession(r:{code:string;playerId:string;sessionKey:string}){roomCode=r.code;myId=r.playerId;resumeKey=r.sessionKey;sessionStorage.setItem('vh-room-code',roomCode);sessionStorage.setItem('vh-player-id',myId);sessionStorage.setItem('vh-session-key',resumeKey);}
 function clearSession(){roomCode='';myId='';resumeKey='';sessionStorage.removeItem('vh-room-code');sessionStorage.removeItem('vh-player-id');sessionStorage.removeItem('vh-session-key');socket.emit('leave');}
 function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();const notice=r.error||'Previous session expired.';if(splashDismissed){menu();toast(notice);}else pendingResumeNotice=notice;}});}
+function hideMenuFrame() {
+  if (!menuFrame) return;
+  menuFrame.classList.remove('vh-menu-frame');
+  menuFrame.classList.add('vh-preloaded-menu');
+  menuFrame.setAttribute('aria-hidden', 'true');
+  menuFrame.tabIndex = -1;
+}
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
   overlay.innerHTML='';
@@ -407,6 +414,7 @@ function updateHud(s: Snapshot | null) {
   const use=document.querySelector<HTMLButtonElement>('#use');if(use)use.disabled=!local?.alive||s.selfRole==='MOLE'||!nearestTask();
 }
 function renderState(s: Snapshot) {
+  hideMenuFrame();
   const prev=currentPhase;latest=s;const local=s.players.find(p=>p.id===myId);
   if(local){serverMe.x=local.x;serverMe.y=local.y;if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}}
   sceneRef?.syncState(s);
