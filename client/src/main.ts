@@ -30,6 +30,8 @@ let sceneRef: Estate | undefined;
 let audio: AudioContext | undefined;
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
+const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':0, '#f45b5b':1, '#54b7f2':2, '#a98af5':3, '#f0bd4b':4, '#e78b4e':4, '#b6cf5b':4, '#e4e7ec':5, '#f18dc3':6 };
+function creatureColumn(color: string): number { return CREATURE_COLOR_COLUMNS[color.toLowerCase()] ?? 5; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
 function show(html: string) { overlay.innerHTML = html; }
 function tone(frequency = 440, duration = 0.08) {
@@ -137,21 +139,19 @@ class Estate extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
-  private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
+  private masks: Uint8Array[] = []; private visionEdges:{x:number;y:number}[]=[]; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
     for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
-    this.load.spritesheet('crew','/assets/characters/balaclava-sheet.webp',{frameWidth:512,frameHeight:512});
+    this.load.spritesheet('vice-creatures','/assets/characters/vice-creatures-atlas.png',{frameWidth:160,frameHeight:160});
   }
   create(){
-    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));
+    this.cameras.main.setBounds(0,0,8192,4096);this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.1));
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
-    this.anims.create({key:'idle',frames:this.anims.generateFrameNumbers('crew',{start:0,end:3}),frameRate:2,repeat:-1});
-    this.anims.create({key:'run',frames:this.anims.generateFrameNumbers('crew',{start:4,end:7}),frameRate:3,repeat:-1});
-    this.anims.create({key:'down',frames:this.anims.generateFrameNumbers('crew',{start:12,end:15}),frameRate:2,repeat:0});
+    for(let color=0;color<7;color++)this.anims.create({key:`creature-run-${color}`,frames:[{key:'vice-creatures',frame:7+color},{key:'vice-creatures',frame:14+color},{key:'vice-creatures',frame:21+color}],frameRate:3,repeat:-1});
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.25));});sceneRef=this;
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.cameras.main.setZoom(Math.max(0.28,Math.min(innerWidth/1180,innerHeight/720)*1.1));});sceneRef=this;
     if(latest)this.syncState(latest);
   }
   private loadMasks(){
@@ -160,7 +160,17 @@ class Estate extends Phaser.Scene {
       const canvas=document.createElement('canvas');canvas.width=2048;canvas.height=2048;const ctx=canvas.getContext('2d',{willReadFrequently:true});
       if(!ctx||image.width!==2048||image.height!==2048){throw new Error(`Collision mask ${i} must be 2048 × 2048.`);}
       ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,2048,2048).data;const bits=new Uint8Array((2048*2048+7)>>3);
-      for(let p=0,j=0;p<2048*2048;p++,j+=4)if(pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200)bits[p>>3]|=1<<(p&7);
+      const tileX=((i-1)%4)*2048,tileY=Math.floor((i-1)/4)*2048;
+      for(let p=0,j=0;p<2048*2048;p++,j+=4){
+        const solid=pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200;
+        if(!solid)continue;
+        bits[p>>3]|=1<<(p&7);
+        const x=p&2047,y=p>>11;
+        if(x===0||x===2047||y===0||y===2047||((x+y)&7)!==0)continue;
+        const left=j-4,right=j+4,up=j-8192,down=j+8192;
+        const edge=!(pixels[left]>200&&pixels[left+1]>200&&pixels[left+2]>200)||!(pixels[right]>200&&pixels[right+1]>200&&pixels[right+2]>200)||!(pixels[up]>200&&pixels[up+1]>200&&pixels[up+2]>200)||!(pixels[down]>200&&pixels[down+1]>200&&pixels[down+2]>200);
+        if(edge)this.visionEdges.push({x:tileX+x+.5,y:tileY+y+.5});
+      }
       this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
     }
   }
@@ -171,13 +181,13 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
-      a.setPosition(me.x,me.y);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a.setAlpha(local.alive?1:.4);if(!local.alive&&a.anims.currentAnim?.key!=='down')a.play('down',true);}
+    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'vice-creatures',creatureColumn(local.color)).setOrigin(.5,.94).setDepth(10).setScale(.78);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+      a.setPosition(me.x,me.y);a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'crew',0).setOrigin(.5,.94).setDepth(10).setScale(.72);created.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.78);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteTargets.get(p.id),moving=!!previous&&Math.hypot(previous.x-p.x,previous.y-p.y)>2;
       this.remoteTargets.set(p.id,{x:p.x,y:p.y});if(previous&&moving)a.setFlipX(p.x<previous.x);
-      a.setAlpha(p.alive?1:.4);if(!p.alive){if(a.anims.currentAnim?.key!=='down')a.play('down',true);}else a.play(moving?'run':'idle',true);}
+      a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}else{a.stop();a.setFrame(creatureColumn(p.color));}}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteTargets.delete(id);}
   }
@@ -188,9 +198,13 @@ class Estate extends Phaser.Scene {
     ctx.clearRect(0,0,innerWidth,innerHeight);ctx.fillStyle='rgba(5,7,13,.76)';ctx.fillRect(0,0,innerWidth,innerHeight);
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive){ctx.clearRect(0,0,innerWidth,innerHeight);return;}
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);const points:{x:number;y:number}[]=[];
-    const rayCount=1024,rayStep=3,cam=this.cameras.main,view=cam.worldView;
-    for(let i=0;i<rayCount;i++){
-      const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
+    const rayCount=640,rayStep=3,cam=this.cameras.main,view=cam.worldView,rayAngles:number[]=[];
+    for(let i=0;i<rayCount;i++)rayAngles.push(i*Math.PI*2/rayCount);
+    const radius2=radius*radius;
+    for(const edge of this.visionEdges){const ex=edge.x-me.x,ey=edge.y-me.y;if(ex*ex+ey*ey>radius2)continue;const angle=(Math.atan2(ey,ex)+Math.PI*2)%(Math.PI*2);rayAngles.push((angle-.0012+Math.PI*2)%(Math.PI*2),(angle+.0012)%(Math.PI*2));}
+    rayAngles.sort((a,b)=>a-b);
+    for(const angle of rayAngles){
+      const dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=0,blocked=radius;
       for(let distance=rayStep;distance<=radius;distance+=rayStep){
         if(this.solid(me.x+dx*distance,me.y+dy*distance)){blocked=distance;clear=distance-rayStep;break;}
@@ -217,8 +231,8 @@ class Estate extends Phaser.Scene {
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
     const len=Math.hypot(x,y)||1;
     if(x||y){const step=370*Math.min(delta/1000,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);actor.play('run',true);}if(time-this.lastEmit>50){socket.emit('move',{x,y});this.lastEmit=time;}
-    }else this.actors.get(myId)?.play('idle',true);
+      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey)actor.play(runKey,true);}if(time-this.lastEmit>50){socket.emit('move',{x,y});this.lastEmit=time;}
+    }else{const actor=this.actors.get(myId);if(actor){actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
     this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
     for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}

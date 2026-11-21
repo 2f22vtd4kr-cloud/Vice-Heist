@@ -10,6 +10,9 @@ const required = [
   ...Array.from({length:8},(_,i)=>asset('map',`mask-${i+1}.png`)),
   asset('map','collision.png'),
   asset('characters','balaclava-sheet.webp'),
+  asset('characters','vice-creatures-atlas.png'),
+  asset('characters','vice-creatures-atlas.json'),
+  ...['primary','secondary','danger','success','warning','disabled','icon','wide','square'].map(name=>asset('ui','buttons',`${name}.svg`)),
   source('characters','balaclava-creature-sheet-original.png'),
   source('mask-r2','manifest.json'),
   source('mask-r2','masks','stitched-mask.png'),
@@ -28,4 +31,8 @@ for (let i=1;i<=8;i++) {
   }
 }
 if(fs.statSync(asset('map','collision.png')).size<1000)throw new Error('Stitched collision atlas is missing or unexpectedly small.');
-console.log('Asset validation passed: 8 map tiles, 8 binary collision masks, stitched atlas and original character/map art are present.');
+const atlas=PNG.sync.read(fs.readFileSync(asset('characters','vice-creatures-atlas.png')));
+if(atlas.width!==1120||atlas.height!==1120)throw new Error('Creature atlas must be 1120×1120 (7×7 frames at 160px).');
+for(let row=0;row<7;row++)for(let col=0;col<7;col++){let visible=0;for(let y=row*160;y<(row+1)*160;y++)for(let x=col*160;x<(col+1)*160;x++)if(atlas.data[(y*atlas.width+x)*4+3]>32)visible++;if(visible<500)throw new Error(`Creature atlas frame ${row},${col} is empty or incorrectly cropped.`);}
+console.log('Creature atlas validation passed: 49 transparent character frames.');
+console.log('Asset validation passed: 8 map tiles, 8 binary collision masks, 49 character frames and 9 button surfaces are present.');

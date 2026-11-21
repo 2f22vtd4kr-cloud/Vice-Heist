@@ -1,21 +1,12 @@
-# Build and verification status
+# Vice Heist build and verification status
 
-Prepared: 2026-11-20
+Updated 2026-11-21.
 
-## Completed in this archive
-
-- Implemented the Phaser/Vite client, Express/Socket.IO server, shared game-state types, Replit single-port configuration, and solo AI mode.
-- Added server-side Telegram `initData` HMAC verification, resumable player sessions, server-authoritative role/action validation, pixel-mask movement collision, task progression, eliminations, sabotage, body reporting, emergency meetings, chat, voting and win conditions.
-- Added mobile joystick and desktop keyboard movement, camera follow, wall-ray vision, collision debug view, sprite animation/tinting, synthesized UI feedback and optional per-player Groq NPC dialogue with deterministic fallback.
-- Preserved the original uploaded map PNGs, sprite sheet, revision-2 masks and optimized runtime assets.
-
-## Checks performed here
-
-- TypeScript syntax transpilation completed without syntax diagnostics.
-- Strict client/server checks against local ambient dependency stubs passed. This checks internal TypeScript consistency but is not a substitute for checking against the installed Phaser/Express/Socket.IO package declarations.
-- Independent image validation confirmed all eight runtime masks are pure black/white, match the corresponding stitched-atlas quadrants exactly, and use the expected 2048×2048 dimensions.
-- Verified the eight original/runtime map tiles and character sheet dimensions, and checked all ten potential spawn anchors plus eight task anchors against the collision foot-hitbox samples.
-
-## Checks still required on Replit
-
-The current execution environment could not complete an npm dependency installation from the registry, so the real package-backed `npm run typecheck`, production `npm run build`, server startup and browser/mobile playtest have not been completed here. The `.replit` run command performs asset validation, real TypeScript checks, client/server builds and then starts the single-port server. Treat a successful Replit build and a hands-on solo/multiplayer browser test as the remaining acceptance gate; this archive is not represented as public-launch-certified.
+- The supplied ZIP remains the single source of truth for the new character atlas and nine button SVGs. Build and start extract the 7×7 (49-frame) atlas and buttons automatically with the lightweight `fflate` dependency.
+- Player actors use the seven supplied color variants directly, at a consistent 0.78 world scale. Run animation cycles through the supplied run A, run B and walk frames at 3 FPS; eliminated players use the ghost pose.
+- Vision is based on collision-mask contours, with local contour sampling and angular rays rather than a fixed fan alone.
+- Mobile controls retain the left-side joystick and right-side action controls; responsive menu layout is covered by the client styles.
+- Verified locally: `npm run build`, `npm test`, strict client/server TypeScript checks, 49-frame alpha validation and all nine button SVG asset checks.
+- Bot navigation regression: all surviving bots moved at least 100 world units and completed tasks during the test window; no unattended stationary bots were observed.
+- GitHub Actions for the existing vision/scale PR previously passed its build-and-test job. The art integration must run through CI after this PR head is updated.
+- Not yet verified: real Replit deployment, Telegram initData authentication, multi-device mobile multiplayer, and final visual acceptance of vision contours on actual devices. Do not treat a local sandbox as production deployment.
