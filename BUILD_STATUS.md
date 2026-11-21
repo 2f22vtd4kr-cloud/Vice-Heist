@@ -2,11 +2,13 @@
 
 Updated 2026-11-21.
 
-- The supplied ZIP remains the single source of truth for the new character atlas and nine button SVGs. Build and start extract the 7×7 (49-frame) atlas and buttons automatically with the lightweight `fflate` dependency.
-- Player actors use the seven supplied color variants directly, at a consistent 0.78 world scale. Run animation cycles through the supplied run A, run B and walk frames at 3 FPS; eliminated players use the ghost pose.
-- Vision is based on collision-mask contours, with local contour sampling and angular rays rather than a fixed fan alone.
-- Mobile controls retain the left-side joystick and right-side action controls; responsive menu layout is covered by the client styles.
-- Verified locally: `npm run build`, `npm test`, strict client/server TypeScript checks, 49-frame alpha validation and all nine button SVG asset checks.
-- Bot navigation regression: all surviving bots moved at least 100 world units and completed tasks during the test window; no unattended stationary bots were observed.
-- GitHub Actions for the existing vision/scale PR previously passed its build-and-test job. The art integration must run through CI after this PR head is updated.
-- Not yet verified: real Replit deployment, Telegram initData authentication, multi-device mobile multiplayer, and final visual acceptance of vision contours on actual devices. Do not treat a local sandbox as production deployment.
+- All six supplied art sheets are wired through atlas.json; the build slices every named frame (73 assets) into client/public/assets/vice-heist/.
+- npm run prepare:assets no longer depends on the absent vice-heist-art-pack.zip; the six checked-in sheets are the source of truth.
+- Sheet 3 supplies four-frame up/down movement, Mole lunge and ghost animations. The previous runtime reference to the absent vice-creatures-atlas.png has been removed.
+- Sheet 1 supplies HUD action art and the right-hand mobile joystick; the action buttons are on the left.
+- Sheet 2 supplies task glows, corpse outlines, radar markers and map/status icons. Vent/CCTV/extended sabotage visuals are labelled as not active where the server does not yet implement those mechanics.
+- Sheet 4 is used for role reveal, elimination, meeting and victory panels.
+- Sheet 5 is used for menu/lobby/map/meeting UI art.
+- Sheet 6 is used by eight touch-friendly task puzzles. The server still performs the authoritative proximity, role, phase and completion checks.
+- Build/CI verification for this branch is pending. Do not treat the implementation as release-ready until asset validation, TypeScript, production build and game regression workflows pass.
+- Real Replit and iPhone Safari visual playtesting is still required after CI.

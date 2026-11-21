@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type { Snapshot, PublicPlayer, Task } from '../../shared/types';
 import './style.css';
+import { VICE_HEIST_ASSET_IDS, VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
 
 declare global {
   interface Window {
@@ -40,6 +41,8 @@ const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':
 function creatureColumn(color: string): number { return CREATURE_COLOR_COLUMNS[color.toLowerCase()] ?? 5; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
 function show(html: string) { overlay.innerHTML = html; }
+const artUrl = (id: string) => `/assets/vice-heist/${id}.png`;
+function setButtonArt(id:string,asset:string){const image=document.querySelector<HTMLImageElement>(`#${id} .action-art`);if(image)image.src=artUrl(asset);}
 
 const splashCrew = [
   { id: 'purple', sprite: 'purple', kind: 'idle', x: 22, feetY: 66.5, h: 8.6, delay: -0.4 },
@@ -161,7 +164,7 @@ window.addEventListener('message',(event:MessageEvent)=>{
 });
 function lobby(s: Snapshot) {
   currentPhase='LOBBY';
-  show(`<div class="lobby"><div class="topline">VICE HEIST <span>ROOM ${escapeHtml(s.code)}</span></div><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
+  show(`<div class="lobby art-lobby"><div class="lobby-art-head"><img src="${artUrl('logo_vice_heist')}" alt="Vice Heist"><div class="topline">ROOM <span>${escapeHtml(s.code)}</span></div></div><img class="lobby-code-art" src="${artUrl('panel_lobby_code')}" alt="Room code panel"><img class="lobby-swatches-art" src="${artUrl('swatches_player_colors')}" alt="Player color swatches"><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
   document.querySelector('#start')!.addEventListener('click',()=>{socket.emit('start');tone(620);});
   document.querySelector('#copy')!.addEventListener('click',()=>{void navigator.clipboard?.writeText(s.code);const b=document.querySelector('#copy');if(b)b.textContent='COPIED';});
   document.querySelector('#back')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});
@@ -174,7 +177,7 @@ function updateLobby(s: Snapshot) {
 }
 function hud() {
   currentPhase='PLAYING';
-  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><button id="sound" aria-label="Toggle sound">♫</button></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div><div class="actions"><button id="use">USE</button><button id="report">REPORT</button><button id="emergency">EMERGENCY</button><button id="kill" class="danger">ELIMINATE</button><button id="sabotage" class="danger">LIGHTS</button></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
+  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><div class="hud-tools"><button id="map-toggle" aria-label="Open estate map"><img src="${artUrl('btn_map_toggle')}" alt=""></button><button id="settings-toggle" aria-label="Open settings"><img src="${artUrl('btn_settings')}" alt=""></button><button id="chat-toggle" aria-label="Open meeting chat"><img src="${artUrl('btn_chat_toggle')}" alt=""></button><button id="sound" aria-label="Toggle sound">♫</button></div></div><div class="objective" id="objective">Complete the estate jobs. Find the Mole.</div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div class="actions"><button id="use" aria-label="Use"><img class="action-art" src="${artUrl('btn_use_dim')}" alt=""><span>USE</span></button><button id="report" aria-label="Report"><img class="action-art" src="${artUrl('btn_report_dim')}" alt=""><span>REPORT</span></button><button id="emergency" aria-label="Emergency meeting"><img class="action-art" src="${artUrl('btn_emergency_call')}" alt=""><span>EMERGENCY</span></button><button id="kill" class="danger" aria-label="Eliminate"><img class="action-art" src="${artUrl('btn_kill_dim')}" alt=""><span>ELIMINATE</span></button><button id="sabotage" class="danger" aria-label="Sabotage"><img class="action-art" src="${artUrl('btn_sabotage_active')}" alt=""><span>LIGHTS</span></button></div><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
   wireControls(); updateHud(latest);
 }
 function wireControls() {
@@ -188,20 +191,82 @@ function wireControls() {
   document.querySelector('#kill')!.addEventListener('click',()=>{const p=nearestTarget();if(p){socket.emit('kill',p.id);tone(160);}else toast('No target in elimination range.');haptic();});
   document.querySelector('#sabotage')!.addEventListener('click',()=>{socket.emit('sabotage','lights');tone(220);haptic();});
   document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
+  document.querySelector('#map-toggle')!.addEventListener('click',()=>openMapOverlay());
+  document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
+  document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
+}
+function openMapOverlay(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
+  const tasks=latest.tasks.map(t=>`<div class="map-task ${t.done?'done':''}"><img src="${artUrl('icon_task_marker')}" alt=""><span>${escapeHtml(t.label)}</span><b>${t.done?'SECURED':'OPEN'}</b></div>`).join('');
+  m.innerHTML=`<div class="meetingbox art-panel map-panel"><button class="panel-close" id="map-close">×</button><p class="eyebrow">OCEAN DRIVE ESTATE</p><h3>Estate map</h3><img class="map-frame-art" src="${artUrl('overlay_estate_map')}" alt=""><div class="map-radar-art"><img src="${artUrl('overlay_admin_radar')}" alt=""><div class="map-radar-dots">${latest.players.map(p=>`<img src="${artUrl('icon_admin_blip')}" alt="" style="left:${p.x/8192*100}%;top:${p.y/4096*100}%">`).join('')}</div></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<div class="map-task-list">${tasks}</div></div>`;
+  m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
+}
+function openSettingsOverlay(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
+  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><small>Right-hand joystick</small></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><small><img src="${artUrl('camera_prop_idle')}" alt=""><img src="${artUrl('camera_prop_live')}" alt=""> Not wired to server state</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small><img src="${artUrl('vent_open')}" alt=""><img src="${artUrl('vent_arrow')}" alt=""><img src="${artUrl('btn_vent_active')}" alt=""> Visuals ready · traversal not enabled</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small><img src="${artUrl('door_horizontal_shut')}" alt=""> Server sabotage exists; door collision gates are not wired</small></div><div class="asset-pin-row"><img src="${artUrl('sabotage_pin_comms')}" alt=""><img src="${artUrl('sabotage_pin_reactor')}" alt=""><img src="${artUrl('sabotage_pin_o2')}" alt=""></div><button class="primary" id="settings-done">DONE</button></div>`;
+  m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
+  m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
+  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
 function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
 function nearestTarget(): PublicPlayer | undefined { return latest?.players.filter(p=>p.alive&&p.id!==myId).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<125).sort((a,b)=>a.d-b.d)[0]; }
 function openTask(task: Task) {
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML=`<div class="meetingbox taskbox"><p class="eyebrow">OCEAN DRIVE ESTATE · SECURE THE PROPERTY</p><h3>${escapeHtml(task.label)}</h3><p>Complete the operation to secure this estate objective.</p><div class="task-sequence">SYSTEM READY</div><button id="complete-task" class="primary">COMPLETE TASK</button><button id="cancel-task" class="textbtn">CANCEL</button></div>`;
-  document.querySelector('#complete-task')!.addEventListener('click',()=>{socket.emit('use');m.innerHTML='';tone(760);haptic();});document.querySelector('#cancel-task')!.addEventListener('click',()=>m.innerHTML='');
+  const art:Record<string,string>={vault:'task_vault_dial',server:'task_wires_server',helipad:'task_keycard_swipe',generator:'task_generator_breakers',dock:'task_boat_fuel',bar:'task_cocktail_mix',pool:'task_pool_valves',garage:'task_garage_scan'};
+  const image=art[task.id]||'task_garage_scan';
+  let interval=0,timeout=0,holdStarted=0,progress=0;
+  const cleanup=()=>{if(interval)window.clearInterval(interval);if(timeout)window.clearTimeout(timeout);};
+  const finish=()=>{cleanup();socket.emit('use');m.innerHTML='';tone(760);haptic();};
+  const status=(value:string)=>{const el=m.querySelector<HTMLElement>('#task-status');if(el)el.textContent=value;};
+  let puzzle='';
+  if(task.id==='vault')puzzle='<p>Enter the four-number combination in order: <b>2 · 7 · 4 · 1</b></p><div class="puzzle-pad">'+Array.from({length:10},(_,n)=>'<button data-digit="'+n+'">'+n+'</button>').join('')+'</div><p id="vault-entry">— — — —</p>';
+  else if(task.id==='server')puzzle='<p>Reconnect each matching server lead. Select a terminal on the left, then its matching terminal on the right.</p><div class="wire-grid"><div>'+['red','blue','gold','teal'].map(c=>'<button data-wire-left="'+c+'" style="--wire:'+c+'">●</button>').join('')+'</div><div>'+['teal','gold','red','blue'].map(c=>'<button data-wire-right="'+c+'" style="--wire:'+c+'">●</button>').join('')+'</div></div><p id="wire-count">0 / 4 connected</p>';
+  else if(task.id==='helipad')puzzle='<p>Swipe the VIP keycard across the reader at a steady speed.</p><div class="keycard-reader"><button id="swipe-card">⇢  SWIPE CARD</button></div>';
+  else if(task.id==='generator')puzzle='<p>Set the four breakers to match the safe power pattern.</p><div class="breaker-row">'+[0,1,2,3].map(n=>'<button data-breaker="'+n+'" aria-pressed="false">OFF</button>').join('')+'</div>';
+  else if(task.id==='dock')puzzle='<p>Hold the pump to fill the tank. Release when the gauge reaches 100%.</p><div class="fuel-meter"><i id="fuel-fill"></i></div><button id="fuel-hold">HOLD TO FUEL</button>';
+  else if(task.id==='bar')puzzle='<p>Mix the VIP order in the correct sequence: lime → ice → rum.</p><div class="ingredient-row">'+['lime','ice','rum'].map(x=>'<button data-ingredient="'+x+'">'+x.toUpperCase()+'</button>').join('')+'</div><p id="mix-count">0 / 3</p>';
+  else if(task.id==='pool')puzzle='<p>Balance filtration pressure in the green zone (68–76).</p><input id="pool-pressure" type="range" min="0" max="100" value="35"><p id="pool-value">35</p><button id="pool-lock">LOCK PRESSURE</button>';
+  else puzzle='<p>Run the diagnostic scan, then verify the vehicle report.</p><div class="scan-meter"><i id="scan-fill"></i></div><p id="scan-status">Scanner initializing…</p><button id="scan-verify" disabled>VERIFY SCAN</button>';
+  m.innerHTML='<div class="meetingbox taskbox art-task"><button id="task-close" class="panel-close" aria-label="Close task">×</button><p class="eyebrow">OCEAN DRIVE ESTATE · TASK '+(task.zone+1)+'</p><h3>'+escapeHtml(task.label)+'</h3><img class="task-art" src="'+artUrl(image)+'" alt=""><div class="puzzle-content">'+puzzle+'</div><p id="task-status" role="status">Complete the operation to secure this objective.</p><button id="cancel-task" class="textbtn">CANCEL</button></div>';
+  const close=()=>{cleanup();m.innerHTML='';};
+  m.querySelector('#task-close')?.addEventListener('click',close);
+  m.querySelector('#cancel-task')?.addEventListener('click',close);
+  if(task.id==='vault'){
+    let entered='';m.querySelectorAll<HTMLButtonElement>('[data-digit]').forEach(b=>b.addEventListener('click',()=>{if(entered.length>=4)return;entered+=b.dataset.digit;const out=m.querySelector('#vault-entry');if(out)out.textContent=entered.padEnd(4,'—').split('').join(' ');if(entered.length===4){if(entered==='2741')finish();else{entered='';status('Incorrect combination. Try again.');const out=m.querySelector('#vault-entry');if(out)out.textContent='— — — —';}}}));
+  }else if(task.id==='server'){
+    const matched=new Set<string>();let selected='';m.querySelectorAll<HTMLButtonElement>('[data-wire-left]').forEach(b=>b.addEventListener('click',()=>{if(matched.has(b.dataset.wireLeft!))return;selected=b.dataset.wireLeft!;m.querySelectorAll('[data-wire-left]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');status('Now select the matching terminal on the right.');}));m.querySelectorAll<HTMLButtonElement>('[data-wire-right]').forEach(b=>b.addEventListener('click',()=>{const color=b.dataset.wireRight!;if(!selected)return;if(color===selected){matched.add(color);b.disabled=true;const left=m.querySelector<HTMLButtonElement>('[data-wire-left="'+color+'"]');if(left)left.disabled=true;b.classList.add('connected');const out=m.querySelector('#wire-count');if(out)out.textContent=matched.size+' / 4 connected';selected='';if(matched.size===4)finish();}else{selected='';status('Wrong wire. Select a new pair.');m.querySelectorAll('[data-wire-left]').forEach(x=>x.classList.remove('selected'));}}));
+  }else if(task.id==='helipad'){
+    const card=m.querySelector<HTMLButtonElement>('#swipe-card')!;let down:{x:number;time:number}|null=null;
+    card.addEventListener('pointerdown',e=>{down={x:e.clientX,time:performance.now()};card.setPointerCapture(e.pointerId);});
+    card.addEventListener('pointerup',e=>{if(!down)return;const dx=e.clientX-down.x,dt=performance.now()-down.time;down=null;if(dx>90&&dt>=250&&dt<=1200)finish();else status(dx<=90?'Swipe farther across the reader.':dt<250?'Too fast — try a steadier swipe.':'Too slow — try again.');});
+  }else if(task.id==='generator'){
+    const target=[true,false,true,true],state=[false,false,false,false];const paint=()=>{m.querySelectorAll<HTMLButtonElement>('[data-breaker]').forEach((b,i)=>{b.textContent=state[i]?'ON':'OFF';b.setAttribute('aria-pressed',String(state[i]));b.classList.toggle('on',state[i]);});};
+    m.querySelectorAll<HTMLButtonElement>('[data-breaker]').forEach(b=>b.addEventListener('click',()=>{const i=Number(b.dataset.breaker);state[i]=!state[i];paint();if(state.every((v,i)=>v===target[i]))finish();}));
+  }else if(task.id==='dock'){
+    const button=m.querySelector<HTMLButtonElement>('#fuel-hold')!,fill=m.querySelector<HTMLElement>('#fuel-fill')!;
+    button.addEventListener('pointerdown',e=>{button.setPointerCapture(e.pointerId);holdStarted=performance.now();interval=window.setInterval(()=>{progress=Math.min(100,(performance.now()-holdStarted)/20);fill.style.width=progress+'%';if(progress>=100){cleanup();status('Fuel tank full.');finish();}},40);});
+    const release=()=>{if(!interval)return;cleanup();if(progress<100)status('Keep holding until the gauge reaches 100%.');};button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);
+  }else if(task.id==='bar'){
+    const sequence=['lime','ice','rum'];let step=0;m.querySelectorAll<HTMLButtonElement>('[data-ingredient]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.ingredient===sequence[step]){b.disabled=true;step++;const out=m.querySelector('#mix-count');if(out)out.textContent=step+' / 3';if(step===3)finish();}else{step=0;m.querySelectorAll<HTMLButtonElement>('[data-ingredient]').forEach(x=>{x.disabled=false;});const out=m.querySelector('#mix-count');if(out)out.textContent='0 / 3';status('Wrong ingredient. Start the recipe again.');}}));
+  }else if(task.id==='pool'){
+    const slider=m.querySelector<HTMLInputElement>('#pool-pressure')!,value=m.querySelector('#pool-value')!;slider.addEventListener('input',()=>{value.textContent=slider.value;});m.querySelector('#pool-lock')?.addEventListener('click',()=>{const n=Number(slider.value);if(n>=68&&n<=76)finish();else status('Pressure is outside the green zone. Adjust and retry.');});
+  }else{
+    const fill=m.querySelector<HTMLElement>('#scan-fill')!,label=m.querySelector('#scan-status')!,verify=m.querySelector<HTMLButtonElement>('#scan-verify')!;
+    timeout=window.setTimeout(()=>{fill.style.width='100%';label.textContent='Diagnostic complete.';verify.disabled=false;},1600);
+    verify.addEventListener('click',finish);
+  }
 }
 function toast(message: string) { const el=document.querySelector('#toast');if(el)el.textContent=message; }
+function showEliminationCutscene(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
+  m.innerHTML='<div class="meetingbox elimination-cutscene"><img src="'+artUrl('slide_kill_cutscene')+'" alt=""><h2>YOU WERE ELIMINATED</h2><p>You can still observe the heist.</p><button id="cutscene-close" class="primary">CONTINUE</button></div>';
+  m.querySelector('#cutscene-close')?.addEventListener('click',()=>m.innerHTML='');
+}
 function renderMeeting(s: Snapshot) {
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!s.meeting)return;currentMeetingEnds=s.meeting.endsAt;
-  const votes=s.players.filter(p=>p.alive).map(p=>`<button data-vote="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join('');
-  m.innerHTML=`<div class="meetingbox"><div class="splash-mark">!</div><p class="eyebrow">EMERGENCY PROTOCOL</p><h3>${escapeHtml(s.meeting.reason)}</h3><p id="meeting-timer">Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s</p><div class="votelist">${votes}<button data-vote="skip">SKIP</button></div><div id="chatlines" class="chatlines">${chatLines.slice(-6).map(escapeHtml).join('<br>')}</div><form id="chatform"><input id="chatinput" maxlength="180" placeholder="Message the crew"><button>SEND</button></form></div>`;
+  const votes=s.players.map(p=>`<button data-vote="${escapeHtml(p.id)}" class="vote-card" ${p.alive?'':'disabled'}><img src="${artUrl(p.alive?'vote_card_alive':'vote_card_dead')}" alt=""><span>${escapeHtml(p.name)}${p.alive?'':' · OUT'}</span></button>`).join('');
+  m.innerHTML=`<div class="meetingbox art-meeting"><img class="meeting-frame-art" src="${artUrl('tablet_meeting_frame')}" alt=""><img class="meeting-table-art" src="${artUrl('meeting_table_prop')}" alt=""><img class="meeting-slide-art" src="${artUrl('slide_report_meeting')}" alt=""><p class="eyebrow">EMERGENCY PROTOCOL</p><h3>${escapeHtml(s.meeting.reason)}</h3><p id="meeting-timer">Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s</p><div class="votelist">${votes}<button data-vote="skip" class="vote-skip"><img src="${artUrl('btn_vote_confirm_skip')}" alt=""><span>SKIP</span></button></div><div id="chatlines" class="chatlines">${chatLines.slice(-6).map(escapeHtml).join('<br>')}</div><form id="chatform"><input id="chatinput" maxlength="180" placeholder="Message the crew"><button>SEND</button></form></div>`;
   m.querySelectorAll('[data-vote]').forEach(b=>b.addEventListener('click',()=>{socket.emit('vote',(b as HTMLElement).dataset.vote);tone(450);}));
   m.querySelector('#chatform')?.addEventListener('submit',e=>{e.preventDefault();const input=m.querySelector<HTMLInputElement>('#chatinput');if(input?.value.trim()){socket.emit('chat',input.value.trim());input.value='';}});
 }
@@ -214,11 +279,13 @@ function updateHud(s: Snapshot | null) {
     const players=s.players.map(p=>'<i class="radar-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" style="left:'+(p.x/8192*100)+'%;top:'+(p.y/4096*100)+'%;--marker:'+escapeHtml(p.color)+'"></i>').join('');
     radar.innerHTML=tasks+players;
   }
+  setButtonArt('use',local?.alive&&s.selfRole!=='MOLE'&&!!nearestTask()?'btn_use_active':'btn_use_dim');
+  setButtonArt('report',local?.alive&&!!nearestBody()?'btn_report_active':'btn_report_dim');
   const kill=document.querySelector<HTMLButtonElement>('#kill'),sab=document.querySelector<HTMLButtonElement>('#sabotage');
-  if(kill){kill.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil((s.selfCooldownUntil-Date.now())/1000));kill.disabled=!local?.alive||left>0;kill.textContent=left>0?`ELIM ${left}s`:'ELIMINATE';}
-  if(sab){sab.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil(((s.sabotage?.endsAt||0)-Date.now())/1000));sab.disabled=!local?.alive||left>0;sab.textContent=left>0?`LIGHTS ${left}s`:'LIGHTS';}
+  if(kill){kill.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil((s.selfCooldownUntil-Date.now())/1000));const ready=!!local?.alive&&left<=0&&!!nearestTarget();kill.disabled=!ready;setButtonArt('kill',ready?'btn_kill_active':'btn_kill_dim');kill.querySelector('span')!.textContent=left>0?`ELIM ${left}s`:'ELIMINATE';}
+  if(sab){sab.style.display=s.selfRole==='MOLE'?'block':'none';const left=Math.max(0,Math.ceil(((s.sabotage?.endsAt||0)-Date.now())/1000));sab.disabled=!local?.alive||left>0;sab.querySelector('span')!.textContent=left>0?`LIGHTS ${left}s`:'LIGHTS';}
   const report=document.querySelector<HTMLButtonElement>('#report');if(report)report.disabled=!local?.alive||!nearestBody();
-  const emergency=document.querySelector<HTMLButtonElement>('#emergency');if(emergency){const left=Math.max(0,Math.ceil((s.emergencyCooldownUntil-Date.now())/1000));emergency.disabled=!local?.alive||s.selfEmergencyUsed||left>0;emergency.textContent=s.selfEmergencyUsed?'USED':left>0?`CALL ${left}s`:'EMERGENCY';}
+  const emergency=document.querySelector<HTMLButtonElement>('#emergency');if(emergency){const left=Math.max(0,Math.ceil((s.emergencyCooldownUntil-Date.now())/1000));emergency.disabled=!local?.alive||s.selfEmergencyUsed||left>0;emergency.querySelector('span')!.textContent=s.selfEmergencyUsed?'USED':left>0?`CALL ${left}s`:'EMERGENCY';}
   const use=document.querySelector<HTMLButtonElement>('#use');if(use)use.disabled=!local?.alive||s.selfRole==='MOLE'||!nearestTask();
 }
 function renderState(s: Snapshot) {
@@ -234,7 +301,7 @@ function renderState(s: Snapshot) {
     if(currentPhase!=='MEETING'||currentMeetingEnds!==s.meeting?.endsAt){renderMeeting(s);tone(260,0.25);}currentPhase='MEETING';
     const timer=document.querySelector('#meeting-timer');if(timer&&s.meeting)timer.textContent=`Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s`;
   } else if(s.phase==='GAME_OVER'){
-    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover"><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
+    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><img class="victory-boat-art" src="${artUrl('escape_chopper_boat')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
   }
 }
 
@@ -245,16 +312,20 @@ class Estate extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private ready = false; private lastEmit = 0; private moving = false; private moveSequence = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
+  private taskGlows = new Map<string, Phaser.GameObjects.Image>();
+  private corpseArt = new Map<string, Phaser.GameObjects.Image>();
+  private previousAlive = new Map<string, boolean>();
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionCtx?: CanvasRenderingContext2D; private lastVision = 0;
   constructor(){super('Estate');}
   preload(){
     for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
-    this.load.spritesheet('vice-creatures','/assets/characters/vice-creatures-atlas.png',{frameWidth:160,frameHeight:160});
+    for (const id of VICE_HEIST_ASSET_IDS) this.load.image(id,`/assets/vice-heist/${id}.png`);
   }
   create(){
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
-    for(let color=0;color<7;color++)this.anims.create({key:`creature-run-${color}`,frames:[{key:'vice-creatures',frame:7+color},{key:'vice-creatures',frame:14+color},{key:'vice-creatures',frame:21+color}],frameRate:7,repeat:-1});
+    const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
+    register('vh-walk-up',VICE_HEIST_WALK_UP,8);register('vh-walk-down',VICE_HEIST_WALK_DOWN,8);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,6);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.resizeVision();this.applyCameraZoom();});sceneRef=this;
@@ -296,13 +367,13 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'vice-creatures',creatureColumn(local.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
-      a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
+    if(local){const wasAlive=this.previousAlive.get(local.id);if(wasAlive===true&&!local.alive)showEliminationCutscene();this.previousAlive.set(local.id,local.alive);let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+      a.setAlpha(local.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);if(!local.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>4)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving)a.setFlipX(p.x<previous[previous.length-2].x);
-      a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}}
+      a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
   }
@@ -342,7 +413,7 @@ class Estate extends Phaser.Scene {
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
-      if(player?.alive&&moving){const key=`creature-run-${creatureColumn(player.color)}`;if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setFrame(creatureColumn(player.color));}
+      if(player?.alive&&moving){const dx=last.x-prev.x,dy=last.y-prev.y;const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
     const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
@@ -353,10 +424,12 @@ class Estate extends Phaser.Scene {
     const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.025:0.075;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setFlipX(x<0);const localColor=latest.players.find(p=>p.id===myId)?.color||'#e4e7ec';const runKey=`creature-run-${creatureColumn(localColor)}`;if(actor.anims.currentAnim?.key!==runKey||!actor.anims.isPlaying)actor.play(runKey,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
-    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?28+creatureColumn(color):creatureColumn(color));}}
-    this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
-    for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
+      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
+    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
+    this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
+    for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
+    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.x,p.y,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.x,p.y).setDepth(9);}
+    for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }

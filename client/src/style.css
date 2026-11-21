@@ -476,3 +476,95 @@ input,textarea{user-select:text;-webkit-user-select:text}
 }
 
 #overlay .vh-menu-frame{position:fixed;inset:0;width:100%;height:100%;border:0;display:block;background:#0d0614;z-index:1;}
+
+
+/* Six-sheet art integration: image-first controls, world overlays and responsive panels. */
+.hud-tools{display:flex;align-items:center;gap:7px;pointer-events:auto}
+.hud-tools button{width:38px;height:38px;padding:4px;border:0;background:transparent;display:grid;place-items:center}
+.hud-tools img{width:100%;height:100%;object-fit:contain}
+.controls{flex-direction:row;justify-content:space-between;align-items:end}
+.actions{order:0;grid-template-columns:repeat(3,minmax(66px,78px));gap:6px}
+.stick{order:1;width:142px;height:142px;flex:0 0 142px;border:0;background: url('/assets/vice-heist/joystick_base.png') center/contain no-repeat;touch-action:none}
+.knob{width:58px;height:58px;left:42px;top:42px;border:0;background:url('/assets/vice-heist/joystick_knob.png') center/contain no-repeat}
+.actions button{position:relative;overflow:visible;min-width:0;height:66px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;color:#fff}
+.actions button .action-art{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.actions button span{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:9px;line-height:1;font-weight:950;letter-spacing:.04em;text-shadow:0 1px 4px #000}
+.actions button:disabled{opacity:.56;filter:grayscale(.65)}
+.actions button.danger{background:transparent;border:0}
+.actions button.danger span{color:#fff}
+.art-panel{position:relative;overflow:auto;background:#17141d url('/assets/vice-heist/overlay_estate_map.png') center/cover no-repeat}
+.panel-close{position:absolute;z-index:4;right:10px;top:8px;border:0;background:#17141ddd;color:#fff;border-radius:50%;width:38px;height:38px;font-size:26px}
+.map-panel{max-height:86dvh;padding:20px}
+.map-frame-art{display:block;width:100%;max-height:180px;object-fit:contain;opacity:.78}
+.map-radar-art{position:relative;width:min(100%,260px);height:145px;margin:10px auto}
+.map-radar-art>img{width:100%;height:100%;object-fit:contain}
+.map-radar-dots{position:absolute;inset:14% 12%}
+.map-radar-dots i{position:absolute;width:9px;height:9px;border:1px solid #fff;border-radius:50%;transform:translate(-50%,-50%)}
+.map-task-list{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.map-task{display:flex;gap:7px;align-items:center;padding:7px;border:1px solid #ffffff20;border-radius:7px;background:#08091099;font-size:10px}
+.map-task i{width:7px;height:7px;border-radius:50%;background:#e6ad68;flex:none}
+.map-task.done i{background:#60d4a2}.map-task b{margin-left:auto;font-size:8px;color:#d9a45e}
+.settings-panel{padding:22px}
+.settings-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #ffffff20}
+.settings-row img{width:42px;height:42px;object-fit:contain}.settings-row span{flex:1}.settings-row small{color:#aaa;font-size:10px}
+.settings-row button{background:#302631;color:#fff;border:1px solid #ffffff30;border-radius:8px;padding:8px 16px}
+.art-lobby{background:linear-gradient(#100e18bb,#100e18f2),url('/assets/vice-heist/menu_bg_art.png') center/cover}
+.lobby-art-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lobby-art-head img{width:min(42%,180px);height:64px;object-fit:contain}
+.lobby-code-art{width:100%;height:74px;object-fit:contain;margin:8px 0}
+.art-meeting{background:#16131c url('/assets/vice-heist/tablet_meeting_frame.png') center/100% 100% no-repeat;padding:24px}
+.meeting-frame-art{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;opacity:.22;pointer-events:none}
+.meeting-slide-art{width:100%;height:80px;object-fit:cover;border-radius:8px;opacity:.8}
+.art-meeting>*:not(.meeting-frame-art){position:relative}
+.vote-card{position:relative;overflow:hidden;min-height:64px;padding:6px;background:#191720;border:1px solid #ffffff2c;border-radius:8px;color:#fff}
+.vote-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:.4}
+.vote-card span{position:relative}
+.vote-skip img{width:100%;height:40px;object-fit:contain}
+.vote-skip span{display:block}
+.art-victory{overflow:hidden;text-align:center}
+.art-victory>img{width:100%;height:150px;object-fit:cover;opacity:.7}
+.elimination-cutscene{position:relative;text-align:center;overflow:hidden}
+.elimination-cutscene img{width:100%;height:180px;object-fit:cover}
+.role-reveal{background:#17141d url('/assets/vice-heist/slide_role_reveal.png') center/cover no-repeat}
+.art-task{max-height:88dvh;overflow:auto;padding:18px}
+.task-art{width:100%;height:clamp(110px,24vh,190px);object-fit:contain;background:#0e1018;border-radius:10px;margin:6px 0 10px}
+.puzzle-content{display:grid;gap:10px}.puzzle-content p{margin:4px 0}
+.puzzle-pad,.wire-pairs,.breaker-row,.ingredient-row{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.puzzle-content button{min-height:42px;border:1px solid #ffffff30;border-radius:8px;background:#28232e;color:#fff;font-weight:800}
+.puzzle-content button:disabled,.puzzle-content button.connected{opacity:.5;border-color:#68d9a8}
+.puzzle-content [data-wire]{border-bottom:5px solid var(--wire)}
+.breaker-row button.on{background:#276a52}
+.keycard-reader{padding:14px;background:#0b0d15;border:1px dashed #d9a45e;border-radius:10px}
+#swipe-card{width:100%;touch-action:pan-y}
+.fuel-meter,.scan-meter{height:16px;background:#080910;border:1px solid #ffffff44;border-radius:20px;overflow:hidden}
+.fuel-meter i,.scan-meter i{display:block;width:0;height:100%;background:linear-gradient(90deg,#d98f4c,#60d4a2)}
+#fuel-hold{width:100%;min-height:54px;touch-action:none}
+#pool-pressure{width:100%;accent-color:#60d4a2}
+#task-status{color:#e8bd84;font-size:11px;min-height:18px}
+@media(max-width:420px){.controls{padding-left:12px;padding-right:12px}.actions{grid-template-columns:repeat(2,68px);gap:5px}.actions button{height:58px}.stick{width:124px;height:124px;flex-basis:124px}.knob{width:50px;height:50px;left:37px;top:37px}.hud-tools{gap:2px}.hud-tools button{width:32px;height:32px}.map-task-list{grid-template-columns:1fr}}
+
+
+.objective{background:#11121acc url('/assets/vice-heist/hud_task_bar.png') center/100% 100% no-repeat;border:0;min-height:44px;padding:12px 18px 12px 44px}
+.map-task img{width:18px;height:18px;object-fit:contain;flex:none}
+.map-radar-dots img{position:absolute;width:15px;height:15px;object-fit:contain;transform:translate(-50%,-50%)}
+.map-radar-dots i{display:none}
+.sabotage-status{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#11121add;border:1px solid #e3a15e66;border-radius:8px;color:#f2bd7d;font-size:11px}
+.sabotage-status img{width:32px;height:32px;object-fit:contain}
+.lobby-swatches-art{width:100%;height:58px;object-fit:contain;opacity:.9}
+.meeting-table-art{position:absolute;right:14px;top:12px;width:76px;height:76px;object-fit:contain;opacity:.22;pointer-events:none}
+.victory-boat-art{position:absolute;right:10px;bottom:8px;width:92px;height:72px;object-fit:contain;opacity:.65}
+.settings-row small img{width:24px;height:24px;object-fit:contain;vertical-align:middle;margin:0 3px}
+.asset-pin-row{display:flex;justify-content:space-around;gap:10px;padding:8px 0}
+.asset-pin-row img{width:42px;height:42px;object-fit:contain;opacity:.7}
+.votelist .vote-card{position:relative;display:grid;place-items:center;min-height:58px}
+.votelist .vote-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:.52}
+.votelist .vote-card span{z-index:1}
+.votelist .vote-card:disabled{opacity:.35}
+@media(max-width:420px){.hudtop{left:10px;right:10px}.hud-tools button{width:30px;height:30px}.objective{max-width:70vw;font-size:10px}.controls{padding:0 10px 12px}.stick{width:118px;height:118px;flex-basis:118px}.knob{width:48px;height:48px;left:35px;top:35px}}
+
+
+.wire-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:10px 4px}
+.wire-grid>div{display:grid;gap:8px}
+.wire-grid button{font-size:24px;color:var(--wire);text-shadow:0 0 8px var(--wire)}
+.wire-grid button.selected{outline:2px solid #fff;outline-offset:2px}
+.wire-grid button.connected{background:#245b49;color:#a4f4d3}
