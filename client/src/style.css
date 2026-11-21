@@ -572,3 +572,11 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .wire-grid button{font-size:24px;color:var(--wire);text-shadow:0 0 8px var(--wire)}
 .wire-grid button.selected{outline:2px solid #fff;outline-offset:2px}
 .wire-grid button.connected{background:#245b49;color:#a4f4d3}
+
+/* Mobile HUD cleanup: keep objective copy separate from its progress meter. */
+.hudtop>b,.hudtop>span{display:none}
+.objective{background:rgba(12,13,18,.88);border:1px solid #ffffff35;min-height:0;padding:8px 12px;max-width:min(76vw,420px);display:grid;gap:6px}
+.objective-label{position:relative;z-index:1;display:block;line-height:1.25;white-space:normal}
+.objective-meter{height:5px;position:relative;overflow:hidden;border-radius:8px;background:#ffffff30}
+.objective-meter i{display:block;height:100%;width:0;border-radius:8px;background:linear-gradient(90deg,#43d6c1,#f3a65d);transition:width .25s ease}
+@media(max-width:420px){.objective{max-width:calc(100vw - 150px);font-size:10px;padding:7px 9px}}
