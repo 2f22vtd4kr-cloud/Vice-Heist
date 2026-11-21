@@ -18,6 +18,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Inspect splash archive
+        run: unzip -Z1 vice-heist-splash.zip
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Build client and server
