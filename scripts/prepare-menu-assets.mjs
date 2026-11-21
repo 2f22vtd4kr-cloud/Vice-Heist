@@ -109,5 +109,13 @@ css += '\n/* Embedded game menu: identity field above the primary navigation. */
   '.menu-identity input { width: 100%; min-height: 7.2rem; padding: 1.5rem 2.2rem; border: .25rem solid rgba(255,241,220,.2); border-radius: 1.5rem; color: var(--cream); background: rgba(13,6,20,.62); font: 500 3.2rem var(--ui); outline: none; user-select: text; -webkit-user-select: text; }\n' +
   '.menu-identity input:focus { border-color: var(--teal); box-shadow: 0 0 0 .4rem rgba(79,240,220,.14); }\n' +
   '@media (min-aspect-ratio: 1/1) { .menu-identity { grid-area: identity; width: min(100%, 70rem); margin: 0; } .screen-main { grid-template-areas: "brand crew" "identity crew" "nav crew"; grid-template-rows: auto auto 1fr; } }\n';
+css += `
+/* Main menu uses the repository's transparent Sheet 5 artwork. */
+html, body { background: #100d17 url('/assets/vice-heist/menu_bg_art.png') center / cover fixed no-repeat !important; }
+body::before { content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(180deg, rgba(10,7,18,.48), rgba(10,7,18,.88)); }
+#app, #stage { position: relative; z-index: 1; }
+.brand::before { content: ''; display: block; width: min(58vw, 250px); height: 78px; margin: 0 auto 10px; background: url('/assets/vice-heist/logo_vice_heist.png') center / contain no-repeat; }
+.nav button, .nav a, .nav [role="button"] { background-image: url('/assets/vice-heist/btn_menu_host_join.png'); background-position: center; background-size: 100% 100%; background-repeat: no-repeat; }
+`;
 write('css/menu.css', css);
 console.log('Prepared supplied menu assets and embedded-game bridge.');
