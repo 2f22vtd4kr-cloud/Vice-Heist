@@ -164,7 +164,7 @@ window.addEventListener('message',(event:MessageEvent)=>{
 });
 function lobby(s: Snapshot) {
   currentPhase='LOBBY';
-  show(`<div class="lobby"><div class="topline">VICE HEIST <span>ROOM ${escapeHtml(s.code)}</span></div><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
+  show(`<div class="lobby art-lobby"><div class="lobby-art-head"><img src="${artUrl('logo_vice_heist')}" alt="Vice Heist"><div class="topline">ROOM <span>${escapeHtml(s.code)}</span></div></div><img class="lobby-code-art" src="${artUrl('panel_lobby_code')}" alt="Room code panel"><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
   document.querySelector('#start')!.addEventListener('click',()=>{socket.emit('start');tone(620);});
   document.querySelector('#copy')!.addEventListener('click',()=>{void navigator.clipboard?.writeText(s.code);const b=document.querySelector('#copy');if(b)b.textContent='COPIED';});
   document.querySelector('#back')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});
@@ -258,10 +258,15 @@ function openTask(task: Task) {
   }
 }
 function toast(message: string) { const el=document.querySelector('#toast');if(el)el.textContent=message; }
+function showEliminationCutscene(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
+  m.innerHTML='<div class="meetingbox elimination-cutscene"><img src="'+artUrl('slide_kill_cutscene')+'" alt=""><h2>YOU WERE ELIMINATED</h2><p>You can still observe the heist.</p><button id="cutscene-close" class="primary">CONTINUE</button></div>';
+  m.querySelector('#cutscene-close')?.addEventListener('click',()=>m.innerHTML='');
+}
 function renderMeeting(s: Snapshot) {
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!s.meeting)return;currentMeetingEnds=s.meeting.endsAt;
   const votes=s.players.filter(p=>p.alive).map(p=>`<button data-vote="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join('');
-  m.innerHTML=`<div class="meetingbox"><div class="splash-mark">!</div><p class="eyebrow">EMERGENCY PROTOCOL</p><h3>${escapeHtml(s.meeting.reason)}</h3><p id="meeting-timer">Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s</p><div class="votelist">${votes}<button data-vote="skip">SKIP</button></div><div id="chatlines" class="chatlines">${chatLines.slice(-6).map(escapeHtml).join('<br>')}</div><form id="chatform"><input id="chatinput" maxlength="180" placeholder="Message the crew"><button>SEND</button></form></div>`;
+  m.innerHTML=`<div class="meetingbox art-meeting"><img class="meeting-frame-art" src="${artUrl('tablet_meeting_frame')}" alt=""><img class="meeting-slide-art" src="${artUrl('slide_report_meeting')}" alt=""><p class="eyebrow">EMERGENCY PROTOCOL</p><h3>${escapeHtml(s.meeting.reason)}</h3><p id="meeting-timer">Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s</p><div class="votelist">${votes}<button data-vote="skip" class="vote-skip"><img src="${artUrl('btn_vote_confirm_skip')}" alt=""><span>SKIP</span></button></div><div id="chatlines" class="chatlines">${chatLines.slice(-6).map(escapeHtml).join('<br>')}</div><form id="chatform"><input id="chatinput" maxlength="180" placeholder="Message the crew"><button>SEND</button></form></div>`;
   m.querySelectorAll('[data-vote]').forEach(b=>b.addEventListener('click',()=>{socket.emit('vote',(b as HTMLElement).dataset.vote);tone(450);}));
   m.querySelector('#chatform')?.addEventListener('submit',e=>{e.preventDefault();const input=m.querySelector<HTMLInputElement>('#chatinput');if(input?.value.trim()){socket.emit('chat',input.value.trim());input.value='';}});
 }
@@ -296,7 +301,7 @@ function renderState(s: Snapshot) {
     if(currentPhase!=='MEETING'||currentMeetingEnds!==s.meeting?.endsAt){renderMeeting(s);tone(260,0.25);}currentPhase='MEETING';
     const timer=document.querySelector('#meeting-timer');if(timer&&s.meeting)timer.textContent=`Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s`;
   } else if(s.phase==='GAME_OVER'){
-    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover"><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
+    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
   }
 }
 
@@ -362,7 +367,7 @@ class Estate extends Phaser.Scene {
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
+    if(local){const wasAlive=this.previousAlive.get(local.id);if(wasAlive===true&&!local.alive)showEliminationCutscene();this.previousAlive.set(local.id,local.alive);let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setAlpha(local.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);if(!local.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}}
     }
     for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
@@ -421,8 +426,10 @@ class Estate extends Phaser.Scene {
     if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.05),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
       const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;});this.lastEmit=time;}
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setFrame(local?.alive===false?'ghost_float_1':'walk_down_1');}}
-    this.taskDots.clear();for(const t of latest.tasks)if(!t.done){this.taskDots.lineStyle(3,0xffd27b,.9);this.taskDots.strokeCircle(t.x,t.y,34);this.taskDots.fillStyle(0xffd27b,.9);this.taskDots.fillCircle(t.x,t.y,6);}
-    for(const p of latest.players)if(!p.alive&&!p.reported){this.taskDots.lineStyle(5,0xff5555,1);this.taskDots.strokeCircle(p.x,p.y,27);this.taskDots.lineBetween(p.x-11,p.y-11,p.x+11,p.y+11);this.taskDots.lineBetween(p.x+11,p.y-11,p.x-11,p.y+11);}
+    this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
+    for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
+    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.x,p.y,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(p.y-1);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.x,p.y).setDepth(p.y-1);}
+    for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
