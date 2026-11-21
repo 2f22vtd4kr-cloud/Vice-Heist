@@ -25,13 +25,7 @@ jobs:
           unzip -p vice-heist-splash.zip vice-heist-splash/src/routes/__root.tsx
           unzip -p vice-heist-splash.zip vice-heist-splash/src/styles.css
           echo '--- asset metadata ---'
-          unzip -Z1 vice-heist-splash.zip | grep -E '\.(png|jpg|svg)      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-      - name: Build client and server
-        run: npm run build
-      - name: Run server regression tests
-        run: npm test
- | while read f; do unzip -p vice-heist-splash.zip "$f" | file -; done
+          unzip -Z1 vice-heist-splash.zip | grep -E '\\.(png|jpg|svg)$' | while read f; do unzip -p vice-heist-splash.zip "$f" | file -; done
       - name: Extract splash assets for inspection
         run: |
           mkdir -p /tmp/splash-inspect
