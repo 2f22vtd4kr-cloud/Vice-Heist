@@ -10,5 +10,5 @@ Updated 2026-11-21.
 - Sheet 4 is used for role reveal, elimination, meeting and victory panels.
 - Sheet 5 is used for menu/lobby/map/meeting UI art.
 - Sheet 6 is used by eight touch-friendly task puzzles. The server still performs the authoritative proximity, role, phase and completion checks.
-- Build/CI verification for this branch is pending. Do not treat the implementation as release-ready until asset validation, TypeScript, production build and game regression workflows pass.
-- Real Replit and iPhone Safari visual playtesting is still required after CI.
+- Verified on the merged main commit: GitHub Actions asset validation, TypeScript checks, production build and all server regression tests passed.
+- Not yet verified: real Replit deployment, iPhone Safari visual layout, touch interactions on physical devices, and full end-to-end playtesting. Do not treat CI success as a substitute for those checks.
