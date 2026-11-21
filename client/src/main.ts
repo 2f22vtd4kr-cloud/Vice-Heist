@@ -183,7 +183,7 @@ class Estate extends Phaser.Scene {
     if(local){let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'vice-creatures',creatureColumn(local.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.12,.12);}if(a){
       a.setPosition(me.x,me.y);a.setAlpha(local.alive?1:.92);if(!local.alive){a.stop();a.setFrame(28+creatureColumn(local.color));}}
     }
-    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.78);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'vice-creatures',creatureColumn(p.color)).setOrigin(.5,.94).setDepth(10).setScale(.9);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteTargets.get(p.id),moving=!!previous&&Math.hypot(previous.x-p.x,previous.y-p.y)>2;
       this.remoteTargets.set(p.id,{x:p.x,y:p.y});if(previous&&moving)a.setFlipX(p.x<previous.x);
       a.setAlpha(p.alive?1:.92);if(!p.alive){a.stop();a.setFrame(28+creatureColumn(p.color));}else if(moving){const runKey=`creature-run-${creatureColumn(p.color)}`;if(a.anims.currentAnim?.key!==runKey)a.play(runKey,true);}else{a.stop();a.setFrame(creatureColumn(p.color));}}
