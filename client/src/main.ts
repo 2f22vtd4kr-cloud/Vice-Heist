@@ -158,7 +158,7 @@ window.addEventListener('message',(event:MessageEvent)=>{
     try { localStorage.setItem('vh-menu-settings',JSON.stringify(event.data.detail||{})); } catch { /* storage may be disabled */ }
     window.dispatchEvent(new CustomEvent('viceheist:settings-changed',{detail:event.data.detail||{}}));
   }
-}
+});
 function lobby(s: Snapshot) {
   currentPhase='LOBBY';
   show(`<div class="lobby"><div class="topline">VICE HEIST <span>ROOM ${escapeHtml(s.code)}</span></div><h2>Assemble your crew.</h2><div id="players" class="players"></div><p class="muted" id="lobby-hint"></p><button id="start" class="primary">START HEIST</button><button id="copy" class="secondary">COPY ROOM CODE</button><button id="back" class="textbtn">LEAVE ROOM</button></div>`);
