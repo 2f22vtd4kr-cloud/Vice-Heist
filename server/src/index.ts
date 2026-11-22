@@ -51,6 +51,25 @@ function blocked(x: number, y: number, radius = 18): boolean {
   const d = radius * 0.7071;
   return [[x-radius,y],[x+radius,y],[x,y-radius],[x,y+radius],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b]) => solid(a,b));
 }
+function advancePlayer(p: Player, now: number) {
+  const dt = clamp((now - p.lastMove) / 1000, 0, 0.06);
+  p.lastMove = now;
+  if (!p.alive) { p.moveX = 0; p.moveY = 0; return; }
+  const magnitude = Math.hypot(p.moveX, p.moveY);
+  if (magnitude < 0.08 || dt <= 0) return;
+  const speedScale = Math.min(1, magnitude);
+  const dx = p.moveX / magnitude * 370 * dt * speedScale;
+  const dy = p.moveY / magnitude * 370 * dt * speedScale;
+  // Substep the authoritative collision sweep so low server tick rates or
+  // event-loop stalls cannot tunnel a player through thin walls.
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 6));
+  const stepX = dx / steps, stepY = dy / steps;
+  for (let i = 0; i < steps; i++) {
+    const nextX = p.x + stepX, nextY = p.y + stepY;
+    if (!blocked(nextX, p.y)) p.x = nextX;
+    if (!blocked(p.x, nextY)) p.y = nextY;
+  }
+}
 const rooms = new Map<string, Room>();
 const COLORS = ['#f45b5b','#54b7f2','#f0bd4b','#a98af5','#58c99b','#f18dc3','#e4e7ec','#e78b4e','#6dd4d0','#b6cf5b'];
 const BOT_NAMES = ['Rico','Mia','Jax','Nova','Ace','Skye','Luca','Zee'];
@@ -96,14 +115,14 @@ function createRoom(): Room {
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
   const n = r.players.size; const id=bot?socketId:`player-${randomBytes(8).toString('hex')}`;
-  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:2800+(n%4)*70,y:2000+Math.floor(n/4)*65,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
+  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:2800+(n%4)*70,y:2000+Math.floor(n/4)*65,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),moveX:0,moveY:0,cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
   r.players.set(id,p); return p;
 }
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
-  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
+  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.moveX=0;p.moveY=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
@@ -323,18 +342,17 @@ io.on('connection', socket => {
   socket.on('move',(input:{x:number;y:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
-    const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.08),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
-    // A zero vector is an explicit release: advance no position and reset the
-    // movement clock so the next press cannot inherit stale elapsed time.
-    if(magnitude<0.12){
-      player.lastMove=now;
+    const now=Date.now(),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
+    // The client sends intent, not coordinates. The server integrates that
+    // intent on its fixed simulation tick and remains authoritative.
+    if(magnitude<0.08){
+      player.moveX=0;player.moveY=0;player.lastMove=now;
       emit(room);
       room.lastStateEmitAt=now;
       reply({ok:true,x:player.x,y:player.y});
       return;
     }
-    const nx=clamp(player.x+dx/magnitude*370*dt,32,8160),ny=clamp(player.y+dy/magnitude*370*dt,32,4064);
-    if(!blocked(nx,player.y))player.x=nx;if(!blocked(player.x,ny))player.y=ny;player.lastMove=now;
+    player.moveX=dx;player.moveY=dy;
     reply({ok:true,x:player.x,y:player.y});
   });
   socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
@@ -345,7 +363,7 @@ io.on('connection', socket => {
   socket.on('vote',(targetId:unknown)=>{if(!room||!player||room.phase!=='MEETING'||!room.meeting||!player.alive)return;const target=String(targetId);if(target==='skip')room.meeting.votes[player.id]='skip';else{const candidate=room.players.get(target);if(candidate?.alive)room.meeting.votes[player.id]=target;}emit(room);});
   socket.on('chat',(message:unknown)=>{if(!room||!player||room.phase!=='MEETING'||typeof message!=='string')return;const clean=message.replace(/[<>\u0000-\u001f]/g,' ').trim().slice(0,180);if(!clean)return;io.to(room.code).emit('chat',{name:player.name,text:clean});void botReply(room,player,clean);});
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
-  socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
+  socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.moveX=0;player.moveY=0;player.lastMove=Date.now();player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
-setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
+setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));

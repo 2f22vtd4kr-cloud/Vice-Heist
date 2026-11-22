@@ -5,3 +5,6 @@ dist/
 !.env.example
 *.log
 .DS_Store
+client/public/assets/vice-heist/
+client/public/menu/
+client/public/splash/

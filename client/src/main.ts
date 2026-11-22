@@ -43,6 +43,7 @@ let menuAssetProgress = 0;
 let phaserSceneReady = false;
 let phaserLoadError = '';
 let menuFrame: HTMLIFrameElement | null = null;
+let menuFrameReady = false;
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
 const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':0, '#f45b5b':1, '#54b7f2':2, '#a98af5':3, '#f0bd4b':4, '#e78b4e':4, '#b6cf5b':4, '#e4e7ec':5, '#f18dc3':6 };
@@ -86,43 +87,42 @@ function preloadMenuFrame(): Promise<void> {
     frame.tabIndex = -1;
     frame.loading = 'eager';
     menuFrame = frame;
-    const timeout = window.setTimeout(() => reject(new Error('Main menu did not finish loading in time.')), 45_000);
-    frame.addEventListener('error', () => { window.clearTimeout(timeout); reject(new Error('Could not load the main menu.')); }, { once: true });
-    frame.addEventListener('load', async () => {
+    let settled = false;
+    const deadline = Date.now() + 8_000;
+    let diagnosticTimer = 0;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(diagnosticTimer);
+      if (error) { menuFrameReady = false; reject(error); }
+      else { menuFrameReady = true; resolve(); }
+    };
+    const inspect = () => {
+      if (settled) return;
       try {
         const doc = frame.contentDocument;
         const menuRoot = doc?.querySelector<HTMLElement>('#app');
         const stage = doc?.querySelector<HTMLElement>('#stage');
-        if (!doc || !menuRoot || !stage) throw new Error('Main menu document is incomplete.');
-        if (!menuRoot.classList.contains('is-ready') || stage.inert) throw new Error('Main menu scripts did not initialise.');
-        const images = Array.from(doc.images);
-        let decodedImages = 0;
-        menuAssetProgress = .05;
-        updateSplashProgress();
-        await Promise.all(images.map(async image => {
-          if (!image.complete) await new Promise<void>((done, fail) => {
-            image.addEventListener('load', () => done(), { once: true });
-            image.addEventListener('error', () => fail(new Error('A main menu image failed to load: ' + image.src)), { once: true });
-          });
-          if (image.naturalWidth === 0) throw new Error('A main menu image failed to load: ' + image.src);
-          if (typeof image.decode === 'function') await image.decode();
-          decodedImages++;
-          menuAssetProgress = .05 + .85 * (decodedImages / Math.max(1, images.length));
+        if (doc && menuRoot?.classList.contains('is-ready') && stage && !stage.inert) {
+          menuAssetProgress = 1;
           updateSplashProgress();
-        }));
-        if (doc.fonts?.ready) await doc.fonts.ready;
-        await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-        menuAssetProgress = 1;
-        updateSplashProgress();
-        window.clearTimeout(timeout);
-        resolve();
-      } catch (error) {
-        window.clearTimeout(timeout);
-        reject(error instanceof Error ? error : new Error(String(error)));
+          finish();
+          return;
+        }
+      } catch { /* A not-yet-committed iframe document is still loading. */ }
+      if (Date.now() >= deadline) {
+        finish(new Error('Main menu is unavailable; using the built-in menu.'));
+        return;
       }
-    }, { once: true });
-    app.insertBefore(frame, overlay);
+      diagnosticTimer = window.setTimeout(inspect, 50);
+    };
+    frame.addEventListener('error', () => finish(new Error('Main menu is unavailable; using the built-in menu.')), { once: true });
+    frame.addEventListener('load', inspect, { once: true });
+    // Set src before insertion so the one-shot load listener cannot consume
+    // the initial about:blank document instead of the menu document.
     frame.src = '/menu/index.html';
+    app.insertBefore(frame, overlay);
+    diagnosticTimer = window.setTimeout(inspect, 50);
   });
 }
 
@@ -144,8 +144,13 @@ async function showSplash() {
 
   const button = document.querySelector<HTMLButtonElement>('#vh-splash');
   if (!button) return;
-  button.addEventListener('click', () => {
+  let autoStartTimer: number | undefined;
+  const enterMenu = () => {
     if (!splashReady || splashDismissed || splashStarting || phaserLoadError) return;
+    if (autoStartTimer !== undefined) {
+      window.clearTimeout(autoStartTimer);
+      autoStartTimer = undefined;
+    }
     splashStarting = true;
     button.classList.remove('vh-phase-ready');
     button.classList.add('vh-phase-entering');
@@ -165,7 +170,8 @@ async function showSplash() {
         if (pendingResumeNotice) { toast(pendingResumeNotice); pendingResumeNotice = ''; }
       }
     }, 420);
-  });
+  };
+  button.addEventListener('click', enterMenu);
 
   updateSplashProgress();
   const paths = ['/splash/img/estate.jpg'].concat(splashCrew.map(c => '/splash/img/crew/' + c.sprite + '.png'));
@@ -206,8 +212,20 @@ async function showSplash() {
     window.addEventListener('vh:game-error', failed, { once: true });
   });
 
+  // The iframe is an optional enhancement. A slow menu asset or font must
+  // never hold the game behind the splash screen.
+  void preloadMenuFrame().then(() => {
+    menuAssetProgress = 1;
+    updateSplashProgress();
+  }).catch(error => {
+    menuFrameReady = false;
+    menuAssetProgress = 1;
+    updateSplashProgress();
+    console.warn('[Vice Heist] Optional menu preload unavailable:', error);
+  });
+
   try {
-    await Promise.all([splashImages, preloadMenuFrame(), gameReady]);
+    await Promise.all([splashImages, gameReady]);
     if (phaserLoadError) throw new Error(phaserLoadError);
     splashReady = true;
     updateSplashProgress();
@@ -223,6 +241,7 @@ async function showSplash() {
     button.setAttribute('aria-label', 'Tap to start Vice Heist');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
+    autoStartTimer = window.setTimeout(enterMenu, 1_500);
   } catch (error) {
     phaserLoadError = error instanceof Error ? error.message : String(error);
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
@@ -267,7 +286,15 @@ function hideMenuFrame() {
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
   overlay.innerHTML='';
-  if (!menuFrame) { show('<div class="menu"><h1>Vice Heist</h1><p>The main menu did not preload. Refresh to try again.</p></div>'); return; }
+  if (!menuFrameReady || !menuFrame) {
+    show('<section class="menu"><div class="brand">VICE <span>HEIST</span></div><p class="eyebrow">OCEAN DRIVE · MIAMI</p><h1>The crew is <em>waiting.</em></h1><p class="sub">Choose how you want to enter the estate.</p><label for="vh-call-sign">CALL SIGN</label><input id="vh-call-sign" maxlength="20" autocomplete="nickname" placeholder="Your name" value="' + escapeHtml(localStorage.getItem('vh-name') || '') + '"><button id="vh-solo" class="primary">SOLO HEIST</button><button id="vh-create" class="secondary">CREATE PRIVATE ROOM</button><div class="join"><input id="vh-room-code" maxlength="5" autocomplete="off" placeholder="ROOM CODE"><button id="vh-join" type="button">JOIN ROOM</button></div><p class="foot">Trust no one. Take everything.</p></section>');
+    const nameInput=document.querySelector<HTMLInputElement>('#vh-call-sign');
+    nameInput?.addEventListener('input',()=>{try{localStorage.setItem('vh-name',(nameInput.value||'').trim().slice(0,20));}catch{/* optional persistence */}});
+    document.querySelector('#vh-solo')?.addEventListener('click',()=>handleMenuAction({action:'quick-play'}));
+    document.querySelector('#vh-create')?.addEventListener('click',()=>handleMenuAction({action:'create-lobby'}));
+    document.querySelector('#vh-join')?.addEventListener('click',()=>handleMenuAction({action:'join-lobby',code:document.querySelector<HTMLInputElement>('#vh-room-code')?.value||''}));
+    return;
+  }
   menuFrame.classList.remove('vh-preloaded-menu');
   menuFrame.classList.add('vh-menu-frame');
   menuFrame.removeAttribute('aria-hidden');
@@ -528,8 +555,8 @@ class Estate extends Phaser.Scene {
     socket.emit('move',{x:0,y:0},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
       this.lastAppliedMovementAck=request;
-      serverMe.x=ack.x!;serverMe.y=ack.y!;me.x=ack.x!;me.y=ack.y!;lastMovementAckAt=Date.now();
-      this.actors.get(myId)?.setPosition(me.x,me.y);
+      serverMe.x=ack.x!;serverMe.y=ack.y!;
+      lastMovementAckAt=Date.now();
     });
   }
   private applyCameraZoom(){
@@ -556,6 +583,16 @@ class Estate extends Phaser.Scene {
     const col=Math.floor(x/2048),row=Math.floor(y/2048),tile=this.masks[row*4+col];const p=(Math.floor(y)%2048)*2048+(Math.floor(x)%2048);return (tile[p>>3]&(1<<(p&7)))!==0;
   }
   private blocked(x:number,y:number,r=18):boolean{const d=r*.7071;return [[x-r,y],[x+r,y],[x,y-r],[x,y+r],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b])=>this.solid(a,b));}
+  private moveWithCollision(x:number,y:number,dx:number,dy:number){
+    const steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dy))/6));
+    const stepX=dx/steps,stepY=dy/steps;
+    for(let i=0;i<steps;i++){
+      const nextX=x+stepX,nextY=y+stepY;
+      if(!this.blocked(nextX,y))x=nextX;
+      if(!this.blocked(x,nextY))y=nextY;
+    }
+    return {x,y};
+  }
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
     if(local){const wasAlive=this.previousAlive.get(local.id);if(wasAlive===true&&!local.alive)showEliminationCutscene();this.previousAlive.set(local.id,local.alive);let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.30,.30);}if(a){
@@ -630,14 +667,23 @@ class Estate extends Phaser.Scene {
     if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
-    if(Math.hypot(x,y)<.12){x=0;y=0;}
-    const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.14:0.22;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
+    const magnitude=Math.hypot(x,y);
+    if(magnitude<.08){x=0;y=0;}
+    const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);
+    // Do not pull a moving predicted player toward an old network sample.
+    // Once input is released, converge smoothly to the stop acknowledgement.
+    if(!(x||y)&&correction>.5){
+      const gain=1-Math.exp(-Math.max(0,delta)/140);
+      me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;
+    }
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){
       if(!this.moving){this.moving=true;this.moveSequence++;}
-      const step=370*Phaser.Math.Clamp(delta/1000,0,.08),nx=me.x+x/len*step,ny=me.y+y/len*step;
-      if(!this.blocked(nx,me.y))me.x=nx;
-      if(!this.blocked(me.x,ny))me.y=ny;
+      const len=Math.hypot(x,y)||1;
+      const speedScale=Math.min(1,len);
+      const step=370*speedScale*Phaser.Math.Clamp(delta/1000,0,.08);
+      const moved=this.moveWithCollision(me.x,me.y,x/len*step,y/len*step);
+      me.x=moved.x;me.y=moved.y;
       if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
       const actor=this.actors.get(myId);
       if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}

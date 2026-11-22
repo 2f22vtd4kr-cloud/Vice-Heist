@@ -43,25 +43,42 @@ try {
   assert.ok(initial, 'authoritative starting snapshot should include the local player');
   const startX = initial.x, startY = initial.y;
 
-  let lastMovementAck;
-  for (let index = 0; index < 10; index++) {
-    lastMovementAck = await emitAck('move', { x: 1, y: 0 });
-    assert.equal(lastMovementAck.ok, true, 'directional movement input should be acknowledged');
-    await wait(50);
-  }
-  assert.ok(Number.isFinite(lastMovementAck?.x) && Number.isFinite(lastMovementAck?.y), 'directional movement acknowledgement must include authoritative coordinates');
-  const travelled = Math.hypot(lastMovementAck.x - startX, lastMovementAck.y - startY);
-  assert.ok(travelled >= 60, 'ten rightward inputs should advance at least 60 world units; advanced ' + travelled.toFixed(2));
+  const waitForPlayer = async (timeoutMs = 2_000) => {
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      const current = latest?.players?.find(candidate => candidate.id === started.playerId);
+      if (current) return current;
+      await wait(20);
+    }
+    throw new Error('Timed out waiting for an authoritative player snapshot.');
+  };
+  const fullStart = await waitForPlayer();
+  await emitAck('move', { x: 1, y: 0 });
+  await wait(320);
+  const fullEnd = await waitForPlayer();
+  const fullDistance = fullEnd.x - fullStart.x;
+  assert.ok(fullDistance >= 80 && fullDistance <= 145, 'held full-speed input should advance about 118 world units in 320ms; advanced ' + fullDistance.toFixed(2));
 
   const stopped = await emitAck('move', { x: 0, y: 0 });
   assert.equal(stopped.ok, true, 'release should be acknowledged');
   const stopX = stopped.x, stopY = stopped.y;
   assert.ok(Number.isFinite(stopX) && Number.isFinite(stopY), 'release acknowledgement must include authoritative coordinates');
   await wait(900);
-  const player = latest?.players.find(candidate => candidate.id === started.playerId);
-  assert.ok(player, 'latest server snapshot should include the local player');
+  let player = await waitForPlayer();
   assert.ok(Math.hypot(player.x - stopX, player.y - stopY) <= 2, 'player must remain at the acknowledged release position; drifted ' + Math.hypot(player.x - stopX, player.y - stopY).toFixed(2) + ' world units');
-  console.log('Movement regression passed: directional input advanced ' + travelled.toFixed(2) + ' world units, then release held position stationary for 900ms.');
+
+  const analogStart = player;
+  await emitAck('move', { x: 0.25, y: 0 });
+  await wait(320);
+  player = await waitForPlayer();
+  const analogDistance = player.x - analogStart.x;
+  assert.ok(analogDistance >= 16 && analogDistance <= 42, '25% joystick deflection should move at about 25% speed; advanced ' + analogDistance.toFixed(2));
+  const analogStop = await emitAck('move', { x: 0, y: 0 });
+  await wait(900);
+  player = await waitForPlayer();
+  assert.ok(Math.hypot(player.x - analogStop.x, player.y - analogStop.y) <= 2, 'analog release must remain stationary');
+  console.log('Movement regression passed: server-tick movement advanced ' + fullDistance.toFixed(2) + ' units at full input and ' + analogDistance.toFixed(2) + ' units at 25% input; both releases held stationary.');
+
 } finally {
   socket?.close();
   child.kill('SIGTERM');
