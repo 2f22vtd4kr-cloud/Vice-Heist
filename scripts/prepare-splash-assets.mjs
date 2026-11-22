@@ -22,7 +22,7 @@ for (const source of allowed) {
   }
 
   const relative = source.replace('vice-heist-splash/public/img/', '');
-  const destination = path.join(root, 'client/public/splash', relative);
+  const destination = path.join(root, 'client/public/splash/img', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.writeFileSync(destination, Buffer.from(bytes));
 }

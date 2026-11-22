@@ -3,7 +3,7 @@ export type Phase = 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
 export type Player = {
   id: string; name: string; color: string; x: number; y: number;
   alive: boolean; reported: boolean; role: Role; bot: boolean; tasks: number;
-  lastMove: number; cooldownUntil: number; emergencyUsed: boolean;
+  lastMove: number; moveX: number; moveY: number; movementEpoch: number; movementRequestId: number; cooldownUntil: number; emergencyUsed: boolean;
   socketId?: string; sessionKey?: string; connected?: boolean;
   aiKey?: string; lastChatAt?: number;
 };
