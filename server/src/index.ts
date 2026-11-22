@@ -341,8 +341,15 @@ io.on('connection', socket => {
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
   socket.on('move',(input:{x:number;y:number;epoch:number;requestId:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
-    if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
-    const now=Date.now(),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)||!Number.isSafeInteger(input?.epoch)||!Number.isSafeInteger(input?.requestId)){reply({ok:false});return;}
+    const now=Date.now();
+    // Ignore reordered packets, especially delayed movement from an epoch
+    // that ended with a newer zero-vector release.
+    if(input.epoch<player.movementEpoch){reply({ok:false,x:player.x,y:player.y});return;}
+    if(input.epoch>player.movementEpoch){player.movementEpoch=input.epoch;player.movementRequestId=0;player.moveX=0;player.moveY=0;}
+    if(input.requestId<=player.movementRequestId){reply({ok:false,x:player.x,y:player.y});return;}
+    player.movementRequestId=input.requestId;
+    const dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
     // The client sends intent, not coordinates. The server integrates that
     // intent on its fixed simulation tick and remains authoritative.
     if(magnitude<0.08){
