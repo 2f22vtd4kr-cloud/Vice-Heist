@@ -13,6 +13,7 @@ The upstream reference clone uses Phaser Arcade Physics velocity on the local pl
 - Joystick magnitude is preserved from 0–1. Keyboard diagonals are normalized and remain capped at 370 world units/second.
 - Both client prediction and server authority sweep movement in at-most-6-world-unit collision substeps, checking X and Y independently so corner sliding is retained and low-frame-rate/tick stalls cannot tunnel through thin collision boundaries.
 - Releasing the stick sends an explicit zero vector, immediately clears server-held input, broadcasts the authoritative stopped position, and acknowledges that position.
+- Each movement packet carries a monotonically increasing request ID and a movement epoch. The server rejects stale epochs and out-of-order requests, so a delayed pre-release packet cannot restart movement. Session resume resets the epoch safely before new input is accepted.
 - Disconnect, death, and non-playing phases clear held movement input.
 - Remote snapshots remain at 20Hz with 100ms interpolation delay.
 - Walk cycles remain at 5fps (200ms per pose); maximum movement speed remains 370 world units/second.
