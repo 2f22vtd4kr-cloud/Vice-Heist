@@ -88,7 +88,10 @@ function preloadMenuFrame(): Promise<void> {
     frame.loading = 'eager';
     menuFrame = frame;
     let settled = false;
-    const deadline = Date.now() + 8_000;
+    // Keep the cinematic menu in the splash preload barrier. The splash may
+    // finish its game assets first, but must not transition to a plain fallback
+    // while this richer menu is still loading in the background.
+    const deadline = Date.now() + 20_000;
     let diagnosticTimer = 0;
     const finish = (error?: Error) => {
       if (settled) return;
@@ -212,20 +215,21 @@ async function showSplash() {
     window.addEventListener('vh:game-error', failed, { once: true });
   });
 
-  // The iframe is an optional enhancement. A slow menu asset or font must
-  // never hold the game behind the splash screen.
-  void preloadMenuFrame().then(() => {
+  // Load the real illustrated menu while the splash is visible. Do not let
+  // the automatic splash transition race ahead and permanently select the
+  // plain fallback before the menu iframe has finished initialising.
+  const menuPreload = preloadMenuFrame().then(() => {
     menuAssetProgress = 1;
     updateSplashProgress();
   }).catch(error => {
     menuFrameReady = false;
     menuAssetProgress = 1;
     updateSplashProgress();
-    console.warn('[Vice Heist] Optional menu preload unavailable:', error);
+    console.warn('[Vice Heist] Illustrated menu preload unavailable; using the accessible fallback:', error);
   });
 
   try {
-    await Promise.all([splashImages, gameReady]);
+    await Promise.all([splashImages, gameReady, menuPreload]);
     if (phaserLoadError) throw new Error(phaserLoadError);
     splashReady = true;
     updateSplashProgress();
