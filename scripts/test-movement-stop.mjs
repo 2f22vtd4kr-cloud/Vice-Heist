@@ -93,6 +93,26 @@ try {
   assert.ok(Math.hypot(player.x - analogStop.x, player.y - analogStop.y) <= 2, 'analog release must remain stationary');
   console.log('Movement regression passed: server-tick movement advanced ' + fullDistance.toFixed(2) + ' units at full input and ' + analogDistance.toFixed(2) + ' units at 25% input; both releases held stationary.');
 
+  const resumedSocket = io(origin, { transports: ['websocket'], reconnection: false, timeout: 5_000 });
+  await new Promise((resolve, reject) => { resumedSocket.once('connect', resolve); resumedSocket.once('connect_error', reject); });
+  socket.close();
+  socket = resumedSocket;
+  latest = undefined;
+  socket.on('state', state => { latest = state; });
+  const resumed = await emitAck('resume', { code: started.code, sessionKey: started.sessionKey });
+  assert.equal(resumed.ok, true, 'existing session should resume');
+  movementEpoch = 1;
+  movementRequestId = 0;
+  await sendMove(1, 0);
+  await wait(220);
+  player = await waitForPlayer();
+  assert.ok(player.x > analogStop.x + 30, 'movement must work after reconnect resets the server epoch');
+  movementEpoch = 2;
+  const reconnectStop = await sendMove(0, 0);
+  await wait(200);
+  player = await waitForPlayer();
+  assert.ok(Math.hypot(player.x - reconnectStop.x, player.y - reconnectStop.y) <= 2, 'reconnected movement release must remain stationary');
+
 } finally {
   socket?.close();
   child.kill('SIGTERM');

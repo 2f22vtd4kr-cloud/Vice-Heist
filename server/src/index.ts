@@ -122,7 +122,7 @@ function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
-  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.moveX=0;p.moveY=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
+  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
@@ -334,7 +334,7 @@ io.on('connection', socket => {
     const r=rooms.get(String(data?.code||'').toUpperCase());
     const existing=r&&[...r.players.values()].find(p=>!p.bot&&p.sessionKey===data?.sessionKey);
     if(!r||!existing){reply(ack, {ok:false,error:'Your previous game session expired.'});return;}
-    room=r;player=existing;player.socketId=socket.id;player.connected=true;socket.join(r.code);
+    room=r;player=existing;player.moveX=0;player.moveY=0;player.lastMove=Date.now();player.movementEpoch=0;player.movementRequestId=0;player.socketId=socket.id;player.connected=true;socket.join(r.code);
     reply(ack, {ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
   });
   socket.on('ai:key',(value:unknown)=>{if(!player)return;const key=typeof value==='string'?value.trim():'';player.aiKey=/^gsk_[A-Za-z0-9_-]{20,}$/.test(key)?key.slice(0,200):undefined;});
