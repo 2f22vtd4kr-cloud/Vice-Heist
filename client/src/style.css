@@ -589,3 +589,38 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .gameover p:not(.eyebrow){position:relative;margin:0 0 18px;line-height:1.45;z-index:1}
 .gameover .primary{position:relative;flex:none;min-height:50px;margin:0;z-index:1}
 #stick{touch-action:none;-webkit-user-select:none;user-select:none}
+
+
+/* Full-viewport cinematic scenes: role reveal, elimination and match result. */
+#meet:has(.scene-screen){background:rgba(5,6,11,.94);overflow:hidden}
+.scene-screen{
+  position:absolute;inset:0;width:100%;height:100%;min-height:100dvh;max-width:none;max-height:none;
+  margin:0;padding:clamp(24px,6vw,72px) max(22px,env(safe-area-inset-right)) clamp(24px,6vw,72px) max(22px,env(safe-area-inset-left));
+  border:0;border-radius:0;box-shadow:none;overflow:hidden;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:clamp(12px,3vh,24px);text-align:center;
+  isolation:isolate;
+}
+.scene-screen h2{max-width:min(92vw,1000px);margin:0;font-size:clamp(34px,8vw,76px);line-height:.98;letter-spacing:-.045em}
+.scene-screen p{max-width:min(86vw,620px);font-size:clamp(14px,2.2vw,20px);line-height:1.5}
+.scene-screen .primary{width:min(100%,360px);min-height:54px;font-size:13px}
+.role-reveal{
+  background:linear-gradient(180deg,rgba(10,8,15,.38),rgba(10,8,15,.92)),url('/assets/vice-heist/slide_role_reveal.png') center/cover no-repeat;
+}
+.role-reveal .eyebrow{font-size:clamp(12px,2vw,16px);letter-spacing:.24em}
+.role-reveal h2{font-size:clamp(56px,13vw,120px);color:#f5b36d;text-shadow:0 8px 35px #000}
+.elimination-cutscene{background:#100d14}
+.elimination-cutscene>img{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;
+  opacity:.34;z-index:-1;
+}
+.elimination-cutscene h2{color:#fff;text-shadow:0 4px 28px #000}
+.art-victory{background:linear-gradient(180deg,rgba(9,8,14,.45),rgba(9,8,14,.94));}
+.art-victory>img:first-child{position:absolute;inset:0;width:100%;height:100%;max-height:none;min-height:0;margin:0;object-fit:cover;object-position:center;opacity:.36;z-index:-1;border-radius:0}
+.art-victory .eyebrow{font-size:clamp(12px,2vw,16px);letter-spacing:.24em}
+.gameover h2{font-size:clamp(38px,9vw,88px);max-width:100%}
+@media (orientation:landscape) and (max-height:500px){
+  .scene-screen{gap:8px;padding-top:max(12px,env(safe-area-inset-top));padding-bottom:max(12px,env(safe-area-inset-bottom))}
+  .scene-screen h2{font-size:clamp(28px,7vh,54px)}
+  .scene-screen p{margin:4px 0;font-size:13px}
+  .scene-screen .primary{min-height:42px}
+}
