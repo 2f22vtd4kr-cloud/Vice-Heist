@@ -27,6 +27,7 @@ let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
 let serverMe = { x: 3000, y: 2070 };
 let lastMovementAckAt = 0;
+let initializedPlayerId = ''; // First authoritative snapshot initializes a new local player.
 let chatLines: string[] = [];
 let roleShown = false;
 let sceneRef: Estate | undefined;
@@ -417,7 +418,19 @@ function updateHud(s: Snapshot | null) {
 function renderState(s: Snapshot) {
   hideMenuFrame();
   const prev=currentPhase;latest=s;const local=s.players.find(p=>p.id===myId);
-  if(local){if(Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}}
+  if(local){
+    // Treat the first snapshot for each player ID as initialization, not a correction.
+    // Set both positions before syncState creates/follows the local sprite.
+    if(initializedPlayerId!==local.id){
+      initializedPlayerId=local.id;
+      me.x=serverMe.x=local.x;
+      me.y=serverMe.y=local.y;
+      lastMovementAckAt=0;
+    }else{
+      if(Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
+      if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}
+    }
+  }
   sceneRef?.syncState(s);
   if(s.phase==='LOBBY'){if(currentPhase!=='LOBBY')lobby(s);else updateLobby(s);}
   else if(s.phase==='PLAYING'){
@@ -538,7 +551,11 @@ class Estate extends Phaser.Scene {
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive)return;
     const actor=this.actors.get(myId),originX=actor?.x??me.x,originY=actor?.y??me.y;
     const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
-    const camera=this.cameras.main,screenX=(worldX:number)=>camera.x+(worldX-camera.scrollX)*camera.zoomX,screenY=(worldY:number)=>camera.y+(worldY-camera.scrollY)*camera.zoomY;
+    const camera=this.cameras.main;
+    // Match Phaser's camera matrix, including its viewport-origin offset.
+    const viewOriginX=camera.width*camera.originX,viewOriginY=camera.height*camera.originY;
+    const screenX=(worldX:number)=>camera.x+viewOriginX+(worldX-viewOriginX-camera.scrollX)*camera.zoomX;
+    const screenY=(worldY:number)=>camera.y+viewOriginY+(worldY-viewOriginY-camera.scrollY)*camera.zoomY;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.48)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.moveTo(screenX(originX),screenY(originY));
     const rayCount=960,rayStep=2;
