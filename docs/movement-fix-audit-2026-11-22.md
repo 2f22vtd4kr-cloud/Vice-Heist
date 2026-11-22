@@ -1,32 +1,28 @@
-# Vice Heist movement and animation repair audit — 2026-11-22
+# Vice Heist movement and animation repair — 2026-11-22
 
-## Scope
-Repair the client movement path and network presentation without changing authoritative movement speed (370 world units/second), collision-mask semantics, player roles, or server ownership of player coordinates. Preserve the existing camera/vision shadow projection fix.
+## Root cause and design
 
-## Confirmed causes
-- The movement packet sequence was incremented for every 50ms packet, while all acknowledgements except the newest sequence were discarded. At ordinary RTTs above the send interval, most acknowledgements were stale and the client relied on coarse snapshots to reconcile.
-- Remote player snapshots were emitted every 100ms (10Hz).
-- Vision performed 960 rays at 2-world-unit increments with eight boundary refinements up to 30 times/second on the main thread.
-- Joystick travel was fixed at 43px despite responsive base/knob dimensions; release depended on the stick retaining pointer capture.
-- Keyboard focus was not restored from the menu iframe to the Phaser canvas.
-- Walk cycles were registered at 8fps.
+The prior implementation sent movement packets every 50ms and advanced authoritative coordinates only when each packet arrived. Client prediction ran every rendered frame, but a fixed per-frame correction pulled the local sprite toward stale acknowledgements even while input was held. Both client and server also normalized every non-zero joystick vector to full speed.
 
-## Changes
-- Movement sequence is now a movement epoch, changed only when a held movement begins or ends. Every packet also has a monotonically increasing request ID. Only newer acknowledgements from the active epoch update the reconciliation point; release invalidates all outstanding movement acknowledgements.
-- Remote snapshots now publish at 20Hz using the existing 50ms server timer; interpolation delay is 100ms.
-- A zero-vector release immediately broadcasts the authoritative stopped position.
-- Vision is reduced to 512 rays, 4-unit spacing, five boundary refinements, and a 20fps redraw cap. Vision radius, collision masks, collision rules, and the corrected camera transform are unchanged.
-- Joystick travel is calculated from actual rendered base, knob, and border dimensions. The active pointer is tracked; pointer-up/cancel are handled on the stick and window, with lost-capture fallback.
-- The visible menu-to-game transition returns keyboard focus to the Phaser canvas without stealing focus during routine state updates.
-- Walk cycles run at 5fps (200ms per frame), holding each of the four poses longer. Authoritative speed remains 370 world units/second.
-- Server regression waits for the authoritative start snapshot, proves ten rightward inputs advance at least 60 world units, then verifies release holds within 2 units for 900ms.
+The upstream reference clone uses Phaser Arcade Physics velocity on the local player every update and sends movement state to its server. Vice Heist adopts the responsive local-prediction principle without copying that clone's client-coordinate trust model.
 
-## Verification
-Run `npm run build`, `npm test`, and `git diff --check`.
-The server-level regression does not replace interactive verification of keyboard focus, mobile touch release, 60fps visual pacing, corner sliding, narrow doorways, and two-client latency.
+## Implemented changes
 
-## Files
-- `client/src/main.ts`
-- `server/src/index.ts`
-- `scripts/test-movement-stop.mjs`
-- `docs/movement-fix-audit-2026-11-22.md`
+- Movement packets now communicate directional intent. The server integrates held input on its existing 50ms simulation/snapshot tick and remains the sole owner of authoritative player coordinates.
+- Client prediction continues every Phaser frame. Authoritative acknowledgements are not chased while input is held; after release, the client eases toward the server's acknowledged stop position using elapsed-time smoothing.
+- Joystick magnitude is preserved from 0–1. Keyboard diagonals are normalized and remain capped at 370 world units/second.
+- Both client prediction and server authority sweep movement in at-most-6-world-unit collision substeps, checking X and Y independently so corner sliding is retained and low-frame-rate/tick stalls cannot tunnel through thin collision boundaries.
+- Releasing the stick sends an explicit zero vector, immediately clears server-held input, broadcasts the authoritative stopped position, and acknowledges that position.
+- Disconnect, death, and non-playing phases clear held movement input.
+- Remote snapshots remain at 20Hz with 100ms interpolation delay.
+- Walk cycles remain at 5fps (200ms per pose); maximum movement speed remains 370 world units/second.
+- Existing collision-mask interpretation, vision radius, camera transform, and canvas-based shadow projection are unchanged.
+
+## Regression coverage
+
+`scripts/test-movement-stop.mjs` now verifies:
+- Held full-speed input advances the authoritative player by the expected distance over a timed interval.
+- A 25% joystick vector moves at approximately 25% of full speed.
+- Explicit release stops movement and the authoritative position remains stationary for 900ms, for both full and analog movement.
+
+Run `npm run build`, `npm test`, and `git diff --check`. Interactive verification is still required for keyboard focus, mobile pointer release, 60fps visual pacing, corner sliding, narrow doorways, and two-client latency.
