@@ -87,8 +87,12 @@ try {
   assert.ok(fullDistance >= 80 && fullDistance <= 145, 'held full-speed input should advance about 118 world units in 320ms; advanced ' + fullDistance.toFixed(2));
 
   movementEpoch = 2;
+  const positionImmediatelyBeforeRelease = fullEnd;
   const stopped = await sendMove(0, 0);
   assert.equal(stopped.ok, true, 'release should be acknowledged');
+  assert.ok(stopped.x >= positionImmediatelyBeforeRelease.x - 2,
+    'release acknowledgement must include the final in-flight movement interval, not pull the player backwards; before=' +
+    positionImmediatelyBeforeRelease.x.toFixed(2) + ', acknowledged=' + stopped.x.toFixed(2));
   const stopX = stopped.x, stopY = stopped.y;
   assert.ok(Number.isFinite(stopX) && Number.isFinite(stopY), 'release acknowledgement must include authoritative coordinates');
   await wait(900);
@@ -107,7 +111,10 @@ try {
   const analogDistance = player.x - analogStart.x;
   assert.ok(analogDistance >= 16 && analogDistance <= 42, '25% joystick deflection should move at about 25% speed; advanced ' + analogDistance.toFixed(2));
   movementEpoch = 4;
+  const analogPositionImmediatelyBeforeRelease = player;
   const analogStop = await sendMove(0, 0);
+  assert.ok(analogStop.x >= analogPositionImmediatelyBeforeRelease.x - 2,
+    'analog release acknowledgement must not roll back the final predicted interval');
   await wait(900);
   player = await waitForPlayer();
   assert.ok(Math.hypot(player.x - analogStop.x, player.y - analogStop.y) <= 2, 'analog release must remain stationary');

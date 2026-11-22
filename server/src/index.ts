@@ -359,7 +359,12 @@ io.on('connection', socket => {
     // The client sends intent, not coordinates. The server integrates that
     // intent on its fixed simulation tick and remains authoritative.
     if(magnitude<0.08){
-      player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=now;
+      // Integrate the final fraction of the active movement interval before
+      // clearing intent. Without this, the server discards up to one tick of
+      // movement at release while the client has already predicted that time,
+      // producing the visible backward correction when the stick is lifted.
+      advancePlayer(player,now);
+      player.moveX=0;player.moveY=0;player.movementInputAt=0;
       emit(room);
       room.lastStateEmitAt=now;
       reply({ok:true,x:player.x,y:player.y});
