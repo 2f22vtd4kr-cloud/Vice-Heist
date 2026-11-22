@@ -374,7 +374,9 @@ function wireControls() {
   };
   stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);
   stick.addEventListener('lostpointercapture',stop);
-  window.addEventListener('pointerup',stop);window.addEventListener('pointercancel',stop);
+  window.addEventListener('pointerup',stop,true);window.addEventListener('pointercancel',stop,true);
+  window.addEventListener('blur',()=>{activePointerId=null;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement(true);});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){activePointerId=null;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement(true);}});
   document.querySelector('#use')!.addEventListener('click',()=>{const t=nearestTask();if(t)openTask(t);else toast('Move closer to an unfinished task.');haptic();});
   document.querySelector('#report')!.addEventListener('click',()=>{const b=nearestBody();if(b){socket.emit('report',b.id);tone(300);}else toast('No body nearby to report.');haptic();});
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
@@ -399,7 +401,7 @@ function openSettingsOverlay(){
   m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
-function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
+function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.corpseX-me.x,p.corpseY-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
 function nearestTarget(): PublicPlayer | undefined { return latest?.players.filter(p=>p.alive&&p.id!==myId).map(p=>({...p,d:Math.hypot(p.x-me.x,p.y-me.y)})).filter(p=>p.d<125).sort((a,b)=>a.d-b.d)[0]; }
 function openTask(task: Task) {
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
@@ -450,7 +452,7 @@ function openTask(task: Task) {
 function toast(message: string) { const el=document.querySelector('#toast');if(el)el.textContent=message; }
 function showEliminationCutscene(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML='<div class="meetingbox elimination-cutscene"><img src="'+artUrl('slide_kill_cutscene')+'" alt=""><h2>YOU WERE ELIMINATED</h2><p>You can still observe the heist.</p><button id="cutscene-close" class="primary">CONTINUE</button></div>';
+  m.innerHTML='<div class="scene-screen elimination-cutscene"><img src="'+artUrl('slide_kill_cutscene')+'" alt=""><h2>YOU WERE ELIMINATED</h2><p>You can still observe the heist.</p><button id="cutscene-close" class="primary">CONTINUE</button></div>';
   m.querySelector('#cutscene-close')?.addEventListener('click',()=>m.innerHTML='');
 }
 function renderMeeting(s: Snapshot) {
@@ -497,14 +499,14 @@ function renderState(s: Snapshot) {
   sceneRef?.syncState(s);
   if(s.phase==='LOBBY'){if(currentPhase!=='LOBBY')lobby(s);else updateLobby(s);}
   else if(s.phase==='PLAYING'){
-    if(currentPhase!=='PLAYING'){hud();if(!roleShown){roleShown=true;const role=s.selfRole==='MOLE'?'MOLE':'CREW';const m=document.querySelector<HTMLDivElement>('#meet');if(m)m.innerHTML=`<div class="meetingbox role-reveal"><p class="eyebrow">YOUR SECRET ROLE</p><h2>${role}</h2><p>${role==='MOLE'?'Eliminate the crew and sabotage the estate.':'Complete the estate jobs and identify the Mole.'}</p><button id="role-ok" class="primary">UNDERSTOOD</button></div>`;document.querySelector('#role-ok')?.addEventListener('click',()=>{const x=document.querySelector('#meet');if(x)x.innerHTML='';});tone(650,0.16);}}
+    if(currentPhase!=='PLAYING'){hud();if(!roleShown){roleShown=true;const role=s.selfRole==='MOLE'?'MOLE':'CREW';const m=document.querySelector<HTMLDivElement>('#meet');if(m)m.innerHTML=`<div class="scene-screen role-reveal"><p class="eyebrow">YOUR SECRET ROLE</p><h2>${role}</h2><p>${role==='MOLE'?'Eliminate the crew and sabotage the estate.':'Complete the estate jobs and identify the Mole.'}</p><button id="role-ok" class="primary">UNDERSTOOD</button></div>`;document.querySelector('#role-ok')?.addEventListener('click',()=>{const x=document.querySelector('#meet');if(x)x.innerHTML='';});tone(650,0.16);}}
     currentPhase='PLAYING';updateHud(s);
   } else if(s.phase==='MEETING'){
     if(currentPhase!=='PLAYING'&&currentPhase!=='MEETING')hud();
     if(currentPhase!=='MEETING'||currentMeetingEnds!==s.meeting?.endsAt){renderMeeting(s);tone(260,0.25);}currentPhase='MEETING';
     const timer=document.querySelector('#meeting-timer');if(timer&&s.meeting)timer.textContent=`Discuss and vote · ${Math.max(0,Math.ceil((s.meeting.endsAt-Date.now())/1000))}s`;
   } else if(s.phase==='GAME_OVER'){
-    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="meetingbox gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
+    if(currentPhase!=='GAME_OVER'){currentPhase='GAME_OVER';show(`<div class="scene-screen gameover art-victory"><img src="${artUrl('slide_ejection_victory')}" alt=""><p class="eyebrow">OCEAN DRIVE ESTATE</p><h2>${s.winner==='CREW'?'CREW ESCAPED':'MOLES TOOK THE ESTATE'}</h2><p>The heist is over.</p><button id="again" class="primary">RETURN TO MAIN MENU</button></div>`);document.querySelector('#again')!.addEventListener('click',()=>{clearSession();socket.disconnect();location.reload();});tone(s.winner==='CREW'?740:130,0.4);}
   }
 }
 
@@ -639,7 +641,7 @@ class Estate extends Phaser.Scene {
     const viewOriginX=camera.width*camera.originX,viewOriginY=camera.height*camera.originY;
     const screenX=(worldX:number)=>camera.x+viewOriginX+(worldX-viewOriginX-camera.scrollX)*camera.zoomX;
     const screenY=(worldY:number)=>camera.y+viewOriginY+(worldY-viewOriginY-camera.scrollY)*camera.zoomY;
-    ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.48)';ctx.fillRect(0,0,width,height);
+    ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.72)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.moveTo(screenX(originX),screenY(originY));
     const rayCount=512,rayStep=4;
     for(let i=0;i<rayCount;i++){
@@ -658,7 +660,20 @@ class Estate extends Phaser.Scene {
     const now=performance.now(),renderAt=now-100;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
-      if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=(renderAt-left.time)/span;if(renderAt>right.time){const ahead=Math.min(180,renderAt-right.time)/1000,vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy),scale=speed>0?Math.min(1,370/speed):0;x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;}else{x=Phaser.Math.Linear(left.x,right.x,Phaser.Math.Clamp(t,0,1));y=Phaser.Math.Linear(left.y,right.y,Phaser.Math.Clamp(t,0,1));}}
+      if(samples.length>=2){
+        let left=samples[0],right=samples[1],bracketed=false;
+        if(renderAt<=samples[0].time){left=samples[0];right=samples[1];bracketed=true;}
+        else for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];bracketed=true;break;}}
+        if(bracketed){const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
+        else{
+          // Keep the final velocity instead of freezing on the last packet and
+          // jumping when the next 20Hz snapshot arrives. Times are milliseconds.
+          left=samples[samples.length-2];right=samples[samples.length-1];
+          const span=Math.max(1,right.time-left.time),ahead=Math.min(120,Math.max(0,renderAt-right.time));
+          const vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy)*1000,scale=speed>0?Math.min(1,370/speed):0;
+          x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;
+        }
+      }
       actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
       if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
@@ -699,7 +714,7 @@ class Estate extends Phaser.Scene {
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
-    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.x,p.y,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.x,p.y).setDepth(9);}
+    const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.corpseX,p.corpseY,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.corpseX,p.corpseY).setDepth(9);}
     for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
