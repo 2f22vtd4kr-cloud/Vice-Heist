@@ -115,7 +115,7 @@ function createRoom(): Room {
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
   const n = r.players.size; const id=bot?socketId:`player-${randomBytes(8).toString('hex')}`;
-  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:2800+(n%4)*70,y:2000+Math.floor(n/4)*65,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),moveX:0,moveY:0,cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
+  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:2800+(n%4)*70,y:2000+Math.floor(n/4)*65,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),moveX:0,moveY:0,movementEpoch:0,movementRequestId:0,cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
   r.players.set(id,p); return p;
 }
 function start(r: Room): boolean {
@@ -339,7 +339,7 @@ io.on('connection', socket => {
   });
   socket.on('ai:key',(value:unknown)=>{if(!player)return;const key=typeof value==='string'?value.trim():'';player.aiKey=/^gsk_[A-Za-z0-9_-]{20,}$/.test(key)?key.slice(0,200):undefined;});
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
-  socket.on('move',(input:{x:number;y:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
+  socket.on('move',(input:{x:number;y:number;epoch:number;requestId:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)){reply({ok:false});return;}
     const now=Date.now(),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);

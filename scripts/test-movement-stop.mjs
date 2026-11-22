@@ -15,6 +15,11 @@ const origin = 'http://127.0.0.1:' + port;
 const child = spawn(process.execPath, ['dist/server/src/index.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false' }, stdio: 'ignore' });
 let socket;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+let movementEpoch = 0;
+let movementRequestId = 0;
+function sendMove(x, y, epoch = movementEpoch, requestId = ++movementRequestId) {
+  return emitAck('move', { x, y, epoch, requestId });
+}
 function emitAck(event, payload) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(event + ' acknowledgement timed out.')), 3_000);
@@ -53,27 +58,36 @@ try {
     throw new Error('Timed out waiting for an authoritative player snapshot.');
   };
   const fullStart = await waitForPlayer();
-  await emitAck('move', { x: 1, y: 0 });
+  movementEpoch = 1;
+  await sendMove(1, 0);
   await wait(320);
   const fullEnd = await waitForPlayer();
   const fullDistance = fullEnd.x - fullStart.x;
   assert.ok(fullDistance >= 80 && fullDistance <= 145, 'held full-speed input should advance about 118 world units in 320ms; advanced ' + fullDistance.toFixed(2));
 
-  const stopped = await emitAck('move', { x: 0, y: 0 });
+  movementEpoch = 2;
+  const stopped = await sendMove(0, 0);
   assert.equal(stopped.ok, true, 'release should be acknowledged');
   const stopX = stopped.x, stopY = stopped.y;
   assert.ok(Number.isFinite(stopX) && Number.isFinite(stopY), 'release acknowledgement must include authoritative coordinates');
   await wait(900);
   let player = await waitForPlayer();
   assert.ok(Math.hypot(player.x - stopX, player.y - stopY) <= 2, 'player must remain at the acknowledged release position; drifted ' + Math.hypot(player.x - stopX, player.y - stopY).toFixed(2) + ' world units');
+  const stale = await sendMove(1, 0, 1, movementRequestId + 1);
+  assert.equal(stale.ok, false, 'server must reject a delayed movement packet from a completed epoch');
+  await wait(250);
+  player = await waitForPlayer();
+  assert.ok(Math.hypot(player.x - stopX, player.y - stopY) <= 2, 'stale movement must not restart after release');
 
   const analogStart = player;
-  await emitAck('move', { x: 0.25, y: 0 });
+  movementEpoch = 3;
+  await sendMove(0.25, 0);
   await wait(320);
   player = await waitForPlayer();
   const analogDistance = player.x - analogStart.x;
   assert.ok(analogDistance >= 16 && analogDistance <= 42, '25% joystick deflection should move at about 25% speed; advanced ' + analogDistance.toFixed(2));
-  const analogStop = await emitAck('move', { x: 0, y: 0 });
+  movementEpoch = 4;
+  const analogStop = await sendMove(0, 0);
   await wait(900);
   player = await waitForPlayer();
   assert.ok(Math.hypot(player.x - analogStop.x, player.y - analogStop.y) <= 2, 'analog release must remain stationary');

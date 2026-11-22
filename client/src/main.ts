@@ -552,7 +552,7 @@ class Estate extends Phaser.Scene {
     this.moving=false;
     const epoch=++this.moveSequence;
     const request=++this.movementRequestSequence;
-    socket.emit('move',{x:0,y:0},(ack?:{ok?:boolean;x?:number;y?:number})=>{
+    socket.emit('move',{x:0,y:0,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
       this.lastAppliedMovementAck=request;
       serverMe.x=ack.x!;serverMe.y=ack.y!;
@@ -689,7 +689,7 @@ class Estate extends Phaser.Scene {
       if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}
       if(time-this.lastEmit>50){
         const epoch=this.moveSequence,request=++this.movementRequestSequence;
-        socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{
+        socket.emit('move',{x,y,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
           if(epoch!==this.moveSequence||!this.moving||request<=this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
           this.lastAppliedMovementAck=request;
           serverMe.x=ack.x!;serverMe.y=ack.y!;lastMovementAckAt=Date.now();
