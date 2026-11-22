@@ -642,7 +642,7 @@ class Estate extends Phaser.Scene {
     const screenX=(worldX:number)=>camera.x+viewOriginX+(worldX-viewOriginX-camera.scrollX)*camera.zoomX;
     const screenY=(worldY:number)=>camera.y+viewOriginY+(worldY-viewOriginY-camera.scrollY)*camera.zoomY;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.72)';ctx.fillRect(0,0,width,height);
-    ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.moveTo(screenX(originX),screenY(originY));
+    ctx.globalCompositeOperation='destination-out';ctx.beginPath();
     const rayCount=512,rayStep=4;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
@@ -651,7 +651,8 @@ class Estate extends Phaser.Scene {
         if(this.solid(originX+dx*distance,originY+dy*distance)){blockedAt=distance;clear=distance-rayStep;break;}
       }
       if(blockedAt<radius){let low=clear,high=blockedAt;for(let refine=0;refine<5;refine++){const mid=(low+high)*.5;if(this.solid(originX+dx*mid,originY+dy*mid))high=mid;else low=mid;}clear=low;}
-      ctx.lineTo(screenX(originX+dx*clear),screenY(originY+dy*clear));
+      const rayX=screenX(originX+dx*clear),rayY=screenY(originY+dy*clear);
+      if(i===0)ctx.moveTo(rayX,rayY);else ctx.lineTo(rayX,rayY);
     }
     ctx.closePath();ctx.fill();ctx.restore();
   }
@@ -688,8 +689,14 @@ class Estate extends Phaser.Scene {
     // Do not pull a moving predicted player toward an old network sample.
     // Once input is released, converge smoothly to the stop acknowledgement.
     if(!(x||y)&&correction>.5){
-      const gain=1-Math.exp(-Math.max(0,delta)/140);
+      // Hold the release acknowledgement as the single reconciliation target
+      // until prediction has converged. Otherwise a later snapshot can replace
+      // the target mid-ease and create the visible back-then-forward recoil.
+      lastMovementAckAt=Date.now();
+      const gain=1-Math.exp(-Math.max(0,delta)/220);
       me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;
+    }else if(!(x||y)&&correction>0){
+      me.x=serverMe.x;me.y=serverMe.y;
     }
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){

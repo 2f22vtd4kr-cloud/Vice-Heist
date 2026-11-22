@@ -169,7 +169,8 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   }
   if(previous[goal]===-2)return[];const path:number[]=[];for(let at=goal;at!==-1;at=previous[at])path.push(at);path.reverse();return path;
 }
-function moveBotToward(bot:Player,target:{x:number;y:number},step:number,key:string,now:number){
+function moveBotToward(bot:Player,target:{x:number;y:number},speed:number,dtSeconds:number,key:string,now:number){
+  const step=speed*dtSeconds;
   let route=botRoutes.get(bot.id);
   const changed=!route||route.key!==key||Math.hypot(route.goalX-target.x,route.goalY-target.y)>192;
   const stuck=!!route&&Math.hypot(bot.x-route.lastX,bot.y-route.lastY)<5&&now-route.stuckSince>1250;
@@ -236,6 +237,7 @@ async function botReply(r: Room, sender: Player, text: string) {
   }
 }
 function botsTick(r: Room, now: number) {
+  const dtSeconds=Math.min(0.1,Math.max(0,(now-r.lastTick)/1000));
   if(r.phase==='PLAYING'){
     const alive=[...r.players.values()].filter(p=>p.alive);
     // Eliminated NPCs remain active as ghosts: they wander the estate but cannot
@@ -246,7 +248,7 @@ function botsTick(r: Room, now: number) {
         const waypoint=TASKS[Math.floor(Math.random()*TASKS.length)];
         target={x:waypoint.x,y:waypoint.y,selectedAt:now};ghostWanderTargets.set(ghost.id,target);
       }
-      moveBotToward(ghost,target,52,'ghost-wander',now);
+      moveBotToward(ghost,target,208,dtSeconds,'ghost-wander',now);
     }
     for(const bot of alive.filter(p=>p.bot)){
       if(bot.role==='CREW'){
@@ -256,9 +258,9 @@ function botsTick(r: Room, now: number) {
           task=r.tasks.filter(t=>!t.done&&!claimed.has(t.id)).sort((x,y)=>Math.hypot(x.x-bot.x,x.y-bot.y)-Math.hypot(y.x-bot.x,y.y-bot.y))[0]||closestTask(r,bot);
           if(task)botTaskAssignments.set(bot.id,task.id);
         }
-        if(task)moveBotToward(bot,task,68,`task:${task.id}`,now);
+        if(task)moveBotToward(bot,task,272,dtSeconds,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
-        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(underLights ? 0.08 : 0.16)){
+        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(1-Math.pow(1-(underLights ? 0.08 : 0.16),dtSeconds/0.25))){
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
@@ -281,15 +283,15 @@ function botsTick(r: Room, now: number) {
           if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
           // Follow the selected crew member even when walls block line of sight.
           // Collision-aware pathfinding handles obstacles; line of sight is required only for elimination.
-          moveBotToward(bot,target,74,'hunt:'+target.id,now);
+          moveBotToward(bot,target,296,dtSeconds,'hunt:'+target.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
-          moveBotToward(bot,patrol,60,'patrol:'+patrol.id,now);
+          moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
         }
-        if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<.008){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
+        if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
-        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<.10){
+        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
           victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
@@ -376,5 +378,5 @@ io.on('connection', socket => {
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
   socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=Date.now();player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
-setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
+setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=50){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));

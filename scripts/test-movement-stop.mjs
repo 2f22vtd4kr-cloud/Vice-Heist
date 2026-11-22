@@ -45,12 +45,30 @@ try {
   assert.equal(started.ok, true, 'solo game should start');
 
   let latest;
-  socket.on('state', state => { latest = state; });
+  const botMotionSamples = new Map();
+  socket.on('state', state => {
+    latest = state;
+    const receivedAt = Date.now();
+    for (const bot of state.players.filter(candidate => candidate.bot && candidate.alive)) {
+      const samples = botMotionSamples.get(bot.id) || [];
+      samples.push({ x: bot.x, y: bot.y, receivedAt });
+      if (samples.length > 30) samples.shift();
+      botMotionSamples.set(bot.id, samples);
+    }
+  });
   const snapshotDeadline = Date.now() + 3_000;
   while (Date.now() < snapshotDeadline && !latest?.players?.some(candidate => candidate.id === started.playerId)) await wait(20);
   const initial = latest?.players.find(candidate => candidate.id === started.playerId);
   assert.ok(initial, 'authoritative starting snapshot should include the local player');
   const startX = initial.x, startY = initial.y;
+  await wait(900);
+  const smoothlyMovingBot = [...botMotionSamples.values()].find(samples => {
+    const distinct = new Set(samples.map(sample => `${Math.round(sample.x*10)},${Math.round(sample.y*10)}`));
+    return distinct.size >= 6;
+  });
+  assert.ok(smoothlyMovingBot, 'bot positions should advance across at least six distinct 50ms snapshots, not in 250ms jumps');
+  const botSampleGaps = smoothlyMovingBot.slice(1).map((sample,index)=>sample.receivedAt-smoothlyMovingBot[index].receivedAt);
+  assert.ok(botSampleGaps.filter(gap=>gap<=150).length>=4, 'bot movement snapshots should arrive at a smooth 50ms cadence');
 
   const waitForPlayer = async (timeoutMs = 2_000) => {
     const until = Date.now() + timeoutMs;
