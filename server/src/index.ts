@@ -326,7 +326,13 @@ io.on('connection', socket => {
     const now=Date.now(),dt=clamp((now-player.lastMove)/1000,0,0.08),dx=clamp(input.x,-1,1),dy=clamp(input.y,-1,1),magnitude=Math.hypot(dx,dy);
     // A zero vector is an explicit release: advance no position and reset the
     // movement clock so the next press cannot inherit stale elapsed time.
-    if(magnitude<0.12){player.lastMove=now;reply({ok:true,x:player.x,y:player.y});return;}
+    if(magnitude<0.12){
+      player.lastMove=now;
+      emit(room);
+      room.lastStateEmitAt=now;
+      reply({ok:true,x:player.x,y:player.y});
+      return;
+    }
     const nx=clamp(player.x+dx/magnitude*370*dt,32,8160),ny=clamp(player.y+dy/magnitude*370*dt,32,4064);
     if(!blocked(nx,player.y))player.x=nx;if(!blocked(player.x,ny))player.y=ny;player.lastMove=now;
     reply({ok:true,x:player.x,y:player.y});
@@ -341,5 +347,5 @@ io.on('connection', socket => {
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
   socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
-setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=100){emit(r);r.lastStateEmitAt=now;}}},50);
+setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));

@@ -34,13 +34,25 @@ try {
   await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
   const started = await emitAck('solo', { name: 'Movement QA' });
   assert.equal(started.ok, true, 'solo game should start');
+
   let latest;
   socket.on('state', state => { latest = state; });
+  const snapshotDeadline = Date.now() + 3_000;
+  while (Date.now() < snapshotDeadline && !latest?.players?.some(candidate => candidate.id === started.playerId)) await wait(20);
+  const initial = latest?.players.find(candidate => candidate.id === started.playerId);
+  assert.ok(initial, 'authoritative starting snapshot should include the local player');
+  const startX = initial.x, startY = initial.y;
+
+  let lastMovementAck;
   for (let index = 0; index < 10; index++) {
-    const moved = await emitAck('move', { x: 1, y: 0 });
-    assert.equal(moved.ok, true, 'movement input should be acknowledged');
+    lastMovementAck = await emitAck('move', { x: 1, y: 0 });
+    assert.equal(lastMovementAck.ok, true, 'directional movement input should be acknowledged');
     await wait(50);
   }
+  assert.ok(Number.isFinite(lastMovementAck?.x) && Number.isFinite(lastMovementAck?.y), 'directional movement acknowledgement must include authoritative coordinates');
+  const travelled = Math.hypot(lastMovementAck.x - startX, lastMovementAck.y - startY);
+  assert.ok(travelled >= 60, 'ten rightward inputs should advance at least 60 world units; advanced ' + travelled.toFixed(2));
+
   const stopped = await emitAck('move', { x: 0, y: 0 });
   assert.equal(stopped.ok, true, 'release should be acknowledged');
   const stopX = stopped.x, stopY = stopped.y;
@@ -49,7 +61,7 @@ try {
   const player = latest?.players.find(candidate => candidate.id === started.playerId);
   assert.ok(player, 'latest server snapshot should include the local player');
   assert.ok(Math.hypot(player.x - stopX, player.y - stopY) <= 2, 'player must remain at the acknowledged release position; drifted ' + Math.hypot(player.x - stopX, player.y - stopY).toFixed(2) + ' world units');
-  console.log('Movement stop regression passed: explicit release acknowledged and authoritative position remained stationary for 900ms.');
+  console.log('Movement regression passed: directional input advanced ' + travelled.toFixed(2) + ' world units, then release held position stationary for 900ms.');
 } finally {
   socket?.close();
   child.kill('SIGTERM');

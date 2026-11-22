@@ -248,12 +248,21 @@ function sendAiKey() { if (groqKey) socket.emit('ai:key', groqKey); }
 function rememberSession(r:{code:string;playerId:string;sessionKey:string}){roomCode=r.code;myId=r.playerId;resumeKey=r.sessionKey;sessionStorage.setItem('vh-room-code',roomCode);sessionStorage.setItem('vh-player-id',myId);sessionStorage.setItem('vh-session-key',resumeKey);}
 function clearSession(){roomCode='';myId='';resumeKey='';sessionStorage.removeItem('vh-room-code');sessionStorage.removeItem('vh-player-id');sessionStorage.removeItem('vh-session-key');socket.emit('leave');}
 function resumeSession(){if(!roomCode||!resumeKey)return;socket.emit('resume',{code:roomCode,sessionKey:resumeKey},(r:{ok:boolean;code:string;playerId:string;sessionKey:string;error?:string})=>{if(r.ok){rememberSession(r);sendAiKey();}else{clearSession();const notice=r.error||'Previous session expired.';if(splashDismissed){menu();toast(notice);}else pendingResumeNotice=notice;}});}
+function focusGameCanvas() {
+  const canvas = document.querySelector<HTMLCanvasElement>('#game canvas');
+  if (!canvas) return;
+  canvas.tabIndex = 0;
+  canvas.setAttribute('aria-label', 'Vice Heist game');
+  canvas.focus({ preventScroll: true });
+}
 function hideMenuFrame() {
   if (!menuFrame) return;
+  const wasVisible = menuFrame.classList.contains('vh-menu-frame');
   menuFrame.classList.remove('vh-menu-frame');
   menuFrame.classList.add('vh-preloaded-menu');
   menuFrame.setAttribute('aria-hidden', 'true');
   menuFrame.tabIndex = -1;
+  if (wasVisible) focusGameCanvas();
 }
 function menu() {
   currentPhase='MENU'; currentMeetingEnds=0;
@@ -308,10 +317,37 @@ function hud() {
   wireControls(); updateHud(latest);
 }
 function wireControls() {
-  const stick=document.querySelector<HTMLElement>('#stick')!,knob=document.querySelector<HTMLElement>('#knob')!;let active=false;
-  const move=(e:PointerEvent)=>{const r=stick.getBoundingClientRect();let dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2,d=Math.hypot(dx,dy),max=43;if(d>max){dx=dx/d*max;dy=dy/d*max;}joystick={x:dx/max,y:dy/max};knob.style.transform=`translate(${dx}px,${dy}px)`;};
-  stick.addEventListener('pointerdown',e=>{active=true;stick.setPointerCapture(e.pointerId);move(e);});stick.addEventListener('pointermove',e=>{if(active)move(e);});
-  const stop=(e?:PointerEvent)=>{if(!active)return;e?.preventDefault();active=false;joystick={x:0,y:0};knob.style.transform='translate(0,0)';sceneRef?.stopMovement(true);};stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);stick.addEventListener('lostpointercapture',stop);
+  const stick=document.querySelector<HTMLElement>('#stick')!,knob=document.querySelector<HTMLElement>('#knob')!;
+  let activePointerId:number|null=null;
+  const move=(e:PointerEvent)=>{
+    if(activePointerId!==e.pointerId)return;
+    const r=stick.getBoundingClientRect(),knobRect=knob.getBoundingClientRect();
+    const border=parseFloat(getComputedStyle(stick).borderLeftWidth)||0;
+    const max=Math.max(1,(Math.min(r.width,r.height)-Math.max(knobRect.width,knobRect.height))/2-border);
+    let dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2;
+    const distance=Math.hypot(dx,dy);
+    if(distance>max){dx=dx/distance*max;dy=dy/distance*max;}
+    joystick={x:dx/max,y:dy/max};
+    knob.style.transform=`translate(${dx}px,${dy}px)`;
+  };
+  stick.addEventListener('pointerdown',e=>{
+    if(activePointerId!==null)return;
+    e.preventDefault();activePointerId=e.pointerId;
+    try{stick.setPointerCapture(e.pointerId);}catch{/* window-level release handlers remain as fallback */}
+    move(e);
+  });
+  stick.addEventListener('pointermove',move);
+  const stop=(e?:PointerEvent)=>{
+    if(activePointerId===null||(e&&e.pointerId!==activePointerId))return;
+    e?.preventDefault();
+    const pointerId=activePointerId;activePointerId=null;
+    joystick={x:0,y:0};knob.style.transform='translate(0,0)';
+    if(stick.hasPointerCapture(pointerId)){try{stick.releasePointerCapture(pointerId);}catch{/* already released */}}
+    sceneRef?.stopMovement(true);
+  };
+  stick.addEventListener('pointerup',stop);stick.addEventListener('pointercancel',stop);
+  stick.addEventListener('lostpointercapture',stop);
+  window.addEventListener('pointerup',stop);window.addEventListener('pointercancel',stop);
   document.querySelector('#use')!.addEventListener('click',()=>{const t=nearestTask();if(t)openTask(t);else toast('Move closer to an unfinished task.');haptic();});
   document.querySelector('#report')!.addEventListener('click',()=>{const b=nearestBody();if(b){socket.emit('report',b.id);tone(300);}else toast('No body nearby to report.');haptic();});
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
@@ -450,7 +486,11 @@ class Estate extends Phaser.Scene {
   private remoteSamples = new Map<string,{x:number;y:number;time:number}[]>();
   private keys!: any;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private ready = false; private lastEmit = 0; private moving = false; private moveSequence = 0;
+  private ready = false; private lastEmit = 0; private moving = false;
+  // Movement epoch changes on press/release, never for every 50ms packet.
+  private moveSequence = 0;
+  private movementRequestSequence = 0;
+  private lastAppliedMovementAck = 0;
   private taskDots!: Phaser.GameObjects.Graphics; private debugGraphics!: Phaser.GameObjects.Graphics;
   private taskGlows = new Map<string, Phaser.GameObjects.Image>();
   private corpseArt = new Map<string, Phaser.GameObjects.Image>();
@@ -469,7 +509,8 @@ class Estate extends Phaser.Scene {
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
     for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
-    register('vh-walk-up',VICE_HEIST_WALK_UP,8);register('vh-walk-down',VICE_HEIST_WALK_DOWN,8);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,6);
+    // Four-frame walk cycles at 5fps hold each pose for 200ms.
+    register('vh-walk-up',VICE_HEIST_WALK_UP,5);register('vh-walk-down',VICE_HEIST_WALK_DOWN,5);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,5);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});sceneRef=this;
@@ -482,9 +523,11 @@ class Estate extends Phaser.Scene {
   stopMovement(force=false){
     if(!this.moving&&!force)return;
     this.moving=false;
-    const sequence=++this.moveSequence;
+    const epoch=++this.moveSequence;
+    const request=++this.movementRequestSequence;
     socket.emit('move',{x:0,y:0},(ack?:{ok?:boolean;x?:number;y?:number})=>{
-      if(sequence!==this.moveSequence||this.moving||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
+      if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
+      this.lastAppliedMovementAck=request;
       serverMe.x=ack.x!;serverMe.y=ack.y!;me.x=ack.x!;me.y=ack.y!;lastMovementAckAt=Date.now();
       this.actors.get(myId)?.setPosition(me.x,me.y);
     });
@@ -546,7 +589,8 @@ class Estate extends Phaser.Scene {
   }
   private drawVision(time:number){
     const canvas=this.visionCanvas,ctx=this.visionContext;if(!canvas||!ctx)return;
-    if(time-this.lastVision<33)return;this.lastVision=time;
+    // Keep visibility work below the main 60fps render budget.
+    if(time-this.lastVision<50)return;this.lastVision=time;
     const width=canvas.clientWidth,height=canvas.clientHeight;
     ctx.clearRect(0,0,width,height);
     if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown)return;
@@ -560,21 +604,21 @@ class Estate extends Phaser.Scene {
     const screenY=(worldY:number)=>camera.y+viewOriginY+(worldY-viewOriginY-camera.scrollY)*camera.zoomY;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.48)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.moveTo(screenX(originX),screenY(originY));
-    const rayCount=960,rayStep=2;
+    const rayCount=512,rayStep=4;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=radius,blockedAt=radius;
       for(let distance=rayStep;distance<=radius;distance+=rayStep){
         if(this.solid(originX+dx*distance,originY+dy*distance)){blockedAt=distance;clear=distance-rayStep;break;}
       }
-      if(blockedAt<radius){let low=clear,high=blockedAt;for(let refine=0;refine<8;refine++){const mid=(low+high)*.5;if(this.solid(originX+dx*mid,originY+dy*mid))high=mid;else low=mid;}clear=low;}
+      if(blockedAt<radius){let low=clear,high=blockedAt;for(let refine=0;refine<5;refine++){const mid=(low+high)*.5;if(this.solid(originX+dx*mid,originY+dy*mid))high=mid;else low=mid;}clear=low;}
       ctx.lineTo(screenX(originX+dx*clear),screenY(originY+dy*clear));
     }
     ctx.closePath();ctx.fill();ctx.restore();
   }
   update(time:number,delta:number){
     if(!this.ready)return;
-    const now=performance.now(),renderAt=now-120;
+    const now=performance.now(),renderAt=now-100;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){let left=samples[0],right=samples[1];for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];break;}left=samples[i];right=samples[i];}const span=Math.max(1,right.time-left.time),t=(renderAt-left.time)/span;if(renderAt>right.time){const ahead=Math.min(180,renderAt-right.time)/1000,vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy),scale=speed>0?Math.min(1,370/speed):0;x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;}else{x=Phaser.Math.Linear(left.x,right.x,Phaser.Math.Clamp(t,0,1));y=Phaser.Math.Linear(left.y,right.y,Phaser.Math.Clamp(t,0,1));}}
@@ -589,8 +633,23 @@ class Estate extends Phaser.Scene {
     if(Math.hypot(x,y)<.12){x=0;y=0;}
     const len=Math.hypot(x,y)||1;const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);if(correction>.5){const gain=(x||y)?0.14:0.22;me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;}
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
-    if(x||y){this.moving=true;const step=370*Phaser.Math.Clamp(delta/1000,0,.08),nx=me.x+x/len*step,ny=me.y+y/len*step;if(!this.blocked(nx,me.y))me.x=nx;if(!this.blocked(me.x,ny))me.y=ny;if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}if(time-this.lastEmit>50){const sequence=++this.moveSequence;socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{if(sequence!==this.moveSequence||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;serverMe.x=ack.x!;serverMe.y=ack.y!;lastMovementAckAt=Date.now();});this.lastEmit=time;}
+    if(x||y){
+      if(!this.moving){this.moving=true;this.moveSequence++;}
+      const step=370*Phaser.Math.Clamp(delta/1000,0,.08),nx=me.x+x/len*step,ny=me.y+y/len*step;
+      if(!this.blocked(nx,me.y))me.x=nx;
+      if(!this.blocked(me.x,ny))me.y=ny;
+      if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
+      const actor=this.actors.get(myId);
+      if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}
+      if(time-this.lastEmit>50){
+        const epoch=this.moveSequence,request=++this.movementRequestSequence;
+        socket.emit('move',{x,y},(ack?:{ok?:boolean;x?:number;y?:number})=>{
+          if(epoch!==this.moveSequence||!this.moving||request<=this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
+          this.lastAppliedMovementAck=request;
+          serverMe.x=ack.x!;serverMe.y=ack.y!;lastMovementAckAt=Date.now();
+        });
+        this.lastEmit=time;
+      }
     }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
