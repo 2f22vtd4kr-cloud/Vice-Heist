@@ -20,6 +20,10 @@ let movementRequestId = 0;
 function sendMove(x, y, epoch = movementEpoch, requestId = ++movementRequestId) {
   return emitAck('move', { x, y, epoch, requestId });
 }
+async function holdMove(x, y, durationMs) {
+  const until = Date.now() + durationMs;
+  while (Date.now() < until) { await sendMove(x, y); await wait(45); }
+}
 function emitAck(event, payload) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(event + ' acknowledgement timed out.')), 3_000);
@@ -59,8 +63,7 @@ try {
   };
   const fullStart = await waitForPlayer();
   movementEpoch = 1;
-  await sendMove(1, 0);
-  await wait(320);
+  await holdMove(1, 0, 320);
   const fullEnd = await waitForPlayer();
   const fullDistance = fullEnd.x - fullStart.x;
   assert.ok(fullDistance >= 80 && fullDistance <= 145, 'held full-speed input should advance about 118 world units in 320ms; advanced ' + fullDistance.toFixed(2));
@@ -81,8 +84,7 @@ try {
 
   const analogStart = player;
   movementEpoch = 3;
-  await sendMove(0.25, 0);
-  await wait(320);
+  await holdMove(0.25, 0, 320);
   player = await waitForPlayer();
   const analogDistance = player.x - analogStart.x;
   assert.ok(analogDistance >= 16 && analogDistance <= 42, '25% joystick deflection should move at about 25% speed; advanced ' + analogDistance.toFixed(2));
@@ -91,7 +93,16 @@ try {
   await wait(900);
   player = await waitForPlayer();
   assert.ok(Math.hypot(player.x - analogStop.x, player.y - analogStop.y) <= 2, 'analog release must remain stationary');
-  console.log('Movement regression passed: server-tick movement advanced ' + fullDistance.toFixed(2) + ' units at full input and ' + analogDistance.toFixed(2) + ' units at 25% input; both releases held stationary.');
+  const leaseStart = player;
+  movementEpoch = 5;
+  await sendMove(1, 0); // Deliberately omit release and all subsequent heartbeats.
+  await wait(260);
+  const leaseEnd = await waitForPlayer();
+  assert.ok(leaseEnd.x > leaseStart.x + 20, 'a fresh movement lease should permit movement');
+  await wait(300);
+  player = await waitForPlayer();
+  assert.ok(Math.hypot(player.x - leaseEnd.x, player.y - leaseEnd.y) <= 2, 'server must expire abandoned movement intent after a lost release');
+  console.log('Movement regression passed: full-speed ' + fullDistance.toFixed(2) + ', analog ' + analogDistance.toFixed(2) + ', explicit releases stationary, and abandoned input lease expires.');
 
   const resumedSocket = io(origin, { transports: ['websocket'], reconnection: false, timeout: 5_000 });
   await new Promise((resolve, reject) => { resumedSocket.once('connect', resolve); resumedSocket.once('connect_error', reject); });
@@ -103,8 +114,7 @@ try {
   assert.equal(resumed.ok, true, 'existing session should resume');
   movementEpoch = 1;
   movementRequestId = 0;
-  await sendMove(1, 0);
-  await wait(220);
+  await holdMove(1, 0, 220);
   player = await waitForPlayer();
   assert.ok(player.x > analogStop.x + 30, 'movement must work after reconnect resets the server epoch');
   movementEpoch = 2;

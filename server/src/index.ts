@@ -55,6 +55,9 @@ function advancePlayer(p: Player, now: number) {
   const dt = clamp((now - p.lastMove) / 1000, 0, 0.06);
   p.lastMove = now;
   if (!p.alive) { p.moveX = 0; p.moveY = 0; return; }
+  // Movement intent is a short lease. If a release packet is lost, a client
+  // stalls, or a pointer event disappears, the server stops the player safely.
+  if (now - p.movementInputAt > 180) { p.moveX = 0; p.moveY = 0; }
   const magnitude = Math.hypot(p.moveX, p.moveY);
   if (magnitude < 0.08 || dt <= 0) return;
   const speedScale = Math.min(1, magnitude);
@@ -99,7 +102,7 @@ function validTelegram(raw?: string) {
   } catch { return null; }
 }
 function cleanName(value: unknown): string { return String(value || 'Player').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0,20) || 'Player'; }
-function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,color:p.color,x:p.x,y:p.y,alive:p.alive,reported:p.reported,bot:p.bot,tasks:p.tasks }; }
+function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,color:p.color,x:p.x,y:p.y,alive:p.alive,reported:p.reported,bot:p.bot,tasks:p.tasks,corpseX:p.corpseX,corpseY:p.corpseY }; }
 function snapshot(r: Room, viewer: string): Snapshot {
   const p = r.players.get(viewer);
   return { code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:p?.role,isHost:r.host===viewer,
@@ -115,14 +118,15 @@ function createRoom(): Room {
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
   const n = r.players.size; const id=bot?socketId:`player-${randomBytes(8).toString('hex')}`;
-  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:2800+(n%4)*70,y:2000+Math.floor(n/4)*65,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),moveX:0,moveY:0,movementEpoch:0,movementRequestId:0,cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
+  const spawnX=2800+(n%4)*70,spawnY=2000+Math.floor(n/4)*65;
+  const p: Player = { id,name,color:COLORS[n%COLORS.length],x:spawnX,y:spawnY,corpseX:spawnX,corpseY:spawnY,alive:true,reported:false,role:'CREW',bot,tasks:0,lastMove:Date.now(),movementInputAt:0,moveX:0,moveY:0,movementEpoch:0,movementRequestId:0,cooldownUntil:0,emergencyUsed:false,socketId:bot?undefined:socketId,sessionKey:bot?undefined:randomBytes(24).toString('hex'),connected:!bot };
   r.players.set(id,p); return p;
 }
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
-  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.lastMove=Date.now();p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
+  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
@@ -286,7 +290,7 @@ function botsTick(r: Room, now: number) {
         if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<.008){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<.10){
-          victim.alive=false;victim.reported=false;bot.cooldownUntil=now+20_000;
+          victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
         }
@@ -301,7 +305,7 @@ function botsTick(r: Room, now: number) {
     }
     const counts=new Map<string,number>();Object.values(r.meeting.votes).forEach(v=>counts.set(v,(counts.get(v)||0)+1));
     const top=[...counts].sort((a,b)=>b[1]-a[1]);
-    if(top.length&&top[0][0]!=='skip'&&(!top[1]||top[0][1]>top[1][1])){const e=r.players.get(top[0][0]);if(e){e.alive=false;e.reported=true;notice(r,`${e.name} was ejected. They were ${e.role==='MOLE'?'a Mole':'Crew'}.`);}}
+    if(top.length&&top[0][0]!=='skip'&&(!top[1]||top[0][1]>top[1][1])){const e=r.players.get(top[0][0]);if(e){e.corpseX=e.x;e.corpseY=e.y;e.alive=false;e.reported=true;e.moveX=0;e.moveY=0;e.movementInputAt=0;notice(r,`${e.name} was ejected. They were ${e.role==='MOLE'?'a Mole':'Crew'}.`);}}
     r.meeting=undefined;r.phase='PLAYING';finish(r);emit(r);
   }
 }
@@ -334,7 +338,7 @@ io.on('connection', socket => {
     const r=rooms.get(String(data?.code||'').toUpperCase());
     const existing=r&&[...r.players.values()].find(p=>!p.bot&&p.sessionKey===data?.sessionKey);
     if(!r||!existing){reply(ack, {ok:false,error:'Your previous game session expired.'});return;}
-    room=r;player=existing;player.moveX=0;player.moveY=0;player.lastMove=Date.now();player.movementEpoch=0;player.movementRequestId=0;player.socketId=socket.id;player.connected=true;socket.join(r.code);
+    room=r;player=existing;player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=Date.now();player.movementEpoch=0;player.movementRequestId=0;player.socketId=socket.id;player.connected=true;socket.join(r.code);
     reply(ack, {ok:true,code:r.code,playerId:player.id,sessionKey:player.sessionKey});emit(r);
   });
   socket.on('ai:key',(value:unknown)=>{if(!player)return;const key=typeof value==='string'?value.trim():'';player.aiKey=/^gsk_[A-Za-z0-9_-]{20,}$/.test(key)?key.slice(0,200):undefined;});
@@ -353,24 +357,24 @@ io.on('connection', socket => {
     // The client sends intent, not coordinates. The server integrates that
     // intent on its fixed simulation tick and remains authoritative.
     if(magnitude<0.08){
-      player.moveX=0;player.moveY=0;player.lastMove=now;
+      player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=now;
       emit(room);
       room.lastStateEmitAt=now;
       reply({ok:true,x:player.x,y:player.y});
       return;
     }
-    player.moveX=dx;player.moveY=dy;
+    player.moveX=dx;player.moveY=dy;player.movementInputAt=now;
     reply({ok:true,x:player.x,y:player.y});
   });
   socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
-  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.alive=false;t.reported=false;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
+  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
-  socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.x-player.x,t.y-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
+  socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.corpseX-player.x,t.corpseY-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
   socket.on('emergency',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;if(player.emergencyUsed||Date.now()<room.emergencyCooldownUntil){socket.emit('notice','Emergency protocol is unavailable right now.');return;}player.emergencyUsed=true;room.emergencyCooldownUntil=Date.now()+60_000;beginMeeting(room,`${player.name} called an emergency meeting.`);});
   socket.on('vote',(targetId:unknown)=>{if(!room||!player||room.phase!=='MEETING'||!room.meeting||!player.alive)return;const target=String(targetId);if(target==='skip')room.meeting.votes[player.id]='skip';else{const candidate=room.players.get(target);if(candidate?.alive)room.meeting.votes[player.id]=target;}emit(room);});
   socket.on('chat',(message:unknown)=>{if(!room||!player||room.phase!=='MEETING'||typeof message!=='string')return;const clean=message.replace(/[<>\u0000-\u001f]/g,' ').trim().slice(0,180);if(!clean)return;io.to(room.code).emit('chat',{name:player.name,text:clean});void botReply(room,player,clean);});
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
-  socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.moveX=0;player.moveY=0;player.lastMove=Date.now();player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
+  socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=Date.now();player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
 setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=250){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));
