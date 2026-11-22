@@ -514,7 +514,7 @@ class Estate extends Phaser.Scene {
   }
   private setupVision(){
     const canvas=document.createElement('canvas');canvas.className='vision-layer';canvas.setAttribute('aria-hidden','true');
-    const gameCanvas=this.game.canvas,overlay=document.querySelector('#overlay');
+    const overlay=document.querySelector('#overlay');
     if(overlay?.parentNode)overlay.parentNode.insertBefore(canvas,overlay);else document.body.appendChild(canvas);
     this.visionCanvas=canvas;this.visionContext=canvas.getContext('2d',{alpha:true});
     if(!this.visionContext)throw new Error('2D visibility overlay is unavailable.');
