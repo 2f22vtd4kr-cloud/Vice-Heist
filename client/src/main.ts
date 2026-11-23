@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type { Snapshot, PublicPlayer, Task } from '../../shared/types';
 import './style.css';
-import { VICE_HEIST_ASSET_IDS, VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
+import { VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
 
 declare global {
   interface Window {
@@ -508,7 +508,9 @@ function renderState(s: Snapshot) {
       me.y=serverMe.y=local.y;
       lastMovementAckAt=0;
     }else{
-      if(Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
+      // A release snapshot can arrive before its Socket.IO acknowledgement.
+      // Never let that older sample replace the authoritative stop target.
+      if(!awaitingStopAck&&Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
       if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}
     }
   }
@@ -773,6 +775,7 @@ class Estate extends Phaser.Scene {
   }
   update(time:number,delta:number){
     if(!this.ready)return;
+    if(time-this.lastMapStreamAt>=200){this.lastMapStreamAt=time;this.streamMapTiles();}
     const now=performance.now(),renderAt=now-100;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
@@ -803,19 +806,19 @@ class Estate extends Phaser.Scene {
     const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);
     // Do not pull a moving predicted player toward an old network sample.
     // Once input is released, converge smoothly to the stop acknowledgement.
-    if(!(x||y)&&correction>.5){
+    if(!(x||y)&&!awaitingStopAck&&correction>.5){
       // Hold the release acknowledgement as the single reconciliation target
       // until prediction has converged. Otherwise a later snapshot can replace
       // the target mid-ease and create the visible back-then-forward recoil.
       lastMovementAckAt=Date.now();
       const gain=1-Math.exp(-Math.max(0,delta)/220);
       me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;
-    }else if(!(x||y)&&correction>0){
+    }else if(!(x||y)&&!awaitingStopAck&&correction>0){
       me.x=serverMe.x;me.y=serverMe.y;
     }
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){
-      if(!this.moving){this.moving=true;this.moveSequence++;}
+      if(!this.moving){this.moving=true;this.moveSequence++;awaitingStopAck=false;}
       const len=Math.hypot(x,y)||1;
       const speedScale=Math.min(1,len);
       const step=370*speedScale*Phaser.Math.Clamp(delta/1000,0,.08);
@@ -841,7 +844,7 @@ class Estate extends Phaser.Scene {
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
-  shutdown(){this.stopMovement();this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
@@ -850,7 +853,7 @@ socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
 window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement(true);}});
-socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);toast('Connection lost. Reconnecting…');});
+socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);awaitingStopAck=false;serverMe.x=me.x;serverMe.y=me.y;toast('Connection lost. Reconnecting…');});
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
-new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false,roundPixels:true},scene:[Estate],physics:{default:'arcade'}});
 void showSplash();
