@@ -134,7 +134,7 @@ function start(r: Room): boolean {
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
-  const shuffled = [...list].sort(() => Math.random() - 0.5);
+  const shuffled = [...list].sort(() => random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
   const availableTasks=[...r.tasks];
   list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach(bot=>{
@@ -236,10 +236,10 @@ function fallbackBotLine(bot: Player, text: string, r: Room): string {
   const leading=[...r.suspicions.entries()].sort((a,b)=>b[1]-a[1])[0];
   const suspect=leading&&leading[1]>=2?r.players.get(leading[0]):undefined;
   if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))return `${suspect.name} was close to the last incident. I want to hear their route.`;
-  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(Math.random()*3)];
-  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(Math.random()*3)];
-  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(Math.random()*3)];
-  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(Math.random()*3)];
+  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(random()*3)];
+  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(random()*3)];
+  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(random()*3)];
+  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(random()*3)];
 }
 async function botReply(r: Room, sender: Player, text: string) {
   const bots=[...r.players.values()].filter(p=>p.bot&&p.alive).slice(0,2);
@@ -267,7 +267,7 @@ function botsTick(r: Room, now: number) {
     for(const ghost of [...r.players.values()].filter(p=>p.bot&&!p.alive)){
       let target=ghostWanderTargets.get(ghost.id);
       if(!target||Math.hypot(target.x-ghost.x,target.y-ghost.y)<70||now-target.selectedAt>9_000){
-        const waypoint=TASKS[Math.floor(Math.random()*TASKS.length)];
+        const waypoint=TASKS[Math.floor(random()*TASKS.length)];
         target={x:waypoint.x,y:waypoint.y,selectedAt:now};ghostWanderTargets.set(ghost.id,target);
       }
       moveBotToward(ghost,target,208,dtSeconds,'ghost-wander',now);
@@ -282,7 +282,7 @@ function botsTick(r: Room, now: number) {
         }
         if(task)moveBotToward(bot,task,272,dtSeconds,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
-        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(1-Math.pow(1-(underLights ? 0.08 : 0.16),dtSeconds/0.25))){
+        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&random()<(1-Math.pow(1-(underLights ? 0.08 : 0.16),dtSeconds/0.25))){
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
@@ -311,9 +311,9 @@ function botsTick(r: Room, now: number) {
           const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
           moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
         }
-        if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
+        if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
-        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
+        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
           victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
