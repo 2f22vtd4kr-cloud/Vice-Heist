@@ -176,27 +176,27 @@ input,textarea{user-select:text;-webkit-user-select:text}
 
 /* Coordinated Vice Heist button art. SVG assets are optional until the art pack is installed. */
 .menu .primary,.meetingbox .primary {
-  background: #d99a55 url('/assets/ui/buttons/primary.svg') center / 100% 100% no-repeat;
+  background: #d99a55;
   border: 0;
   box-shadow: 0 4px 14px #0007, inset 0 1px #ffffff38;
 }
 .menu .secondary,.meetingbox .secondary {
-  background: #262421 url('/assets/ui/buttons/secondary.svg') center / 100% 100% no-repeat;
+  background: #262421;
   border: 1px solid #ffffff20;
   box-shadow: 0 4px 14px #0007;
 }
 .actions button {
-  background: #191a21 url('/assets/ui/buttons/secondary.svg') center / 100% 100% no-repeat;
+  background: #191a21;
   border: 0;
   border-radius: 16px;
   text-shadow: 0 1px 3px #000;
 }
 .actions .danger {
-  background: #572b36 url('/assets/ui/buttons/danger.svg') center / 100% 100% no-repeat;
+  background: #572b36;
   border: 0;
 }
 .hudtop button {
-  background: #17161d url('/assets/ui/buttons/icon.svg') center / 100% 100% no-repeat;
+  background: #17161d;
   border: 0;
 }
 
