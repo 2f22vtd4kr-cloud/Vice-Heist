@@ -8,3 +8,6 @@ dist/
 client/public/assets/vice-heist/
 client/public/menu/
 client/public/splash/
+
+# Generated packed collision masks (recreated by build/startup)
+client/public/assets/map/*.bin
