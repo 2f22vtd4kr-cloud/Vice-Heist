@@ -541,28 +541,62 @@ class Estate extends Phaser.Scene {
   private corpseArt = new Map<string, Phaser.GameObjects.Image>();
   private previousAlive = new Map<string, boolean>();
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionContext?: CanvasRenderingContext2D; private lastVision = 0;
+  private mapTiles = new Map<number, Phaser.GameObjects.Image>();
+  private mapDesired = new Set<number>();
+  private mapLoading = new Set<number>();
+  private mapLoadInFlight = false;
+  private initialMapTiles = new Set<number>();
+  private lastMapStreamAt = 0;
   constructor(){super('Estate');}
   preload(){
-    this.load.on('progress',(value:number)=>{phaserLoadProgress=Phaser.Math.Clamp(value,0,1);updateSplashProgress();});
-    this.load.on('loaderror',(file:any)=>{phaserLoadError='Failed to load game asset: '+file.key+' ('+file.src+')';window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));});
-    this.load.once('complete',()=>{phaserLoadProgress=1;updateSplashProgress();});
-    for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
-    for (const id of VICE_HEIST_ASSET_IDS) this.load.image(id,`/assets/vice-heist/${id}.png`);
+    console.info('[Vice Heist startup] Essential Phaser preload started.');
+    performance.mark('vh-essential-preload-start');
+    // Avoid saturating iPhone Safari with too many simultaneous image decodes.
+    (this.load as any).maxParallelDownloads = 6;
+    this.load.on('progress',(value:number)=>{
+      if(phaserAssetsLoaded)mapLoadProgress=Phaser.Math.Clamp(value,0,1);
+      else phaserLoadProgress=Phaser.Math.Clamp(value,0,1);
+      updateSplashProgress();
+    });
+    this.load.on('loaderror',(file:any)=>{
+      phaserLoadError='Failed to load game asset: '+file.key+' ('+file.src+')';
+      console.error('[Vice Heist startup] Asset load error:',{key:file.key,url:file.src,afterEssentialPreload:phaserAssetsLoaded});
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));
+    });
+    this.load.once('complete',()=>{
+      phaserAssetsLoaded=true;phaserLoadProgress=1;mapLoadProgress=0;
+      performance.mark('vh-essential-preload-complete');
+      console.info('[Vice Heist startup] Essential assets loaded; preparing initial map sectors.');
+      updateSplashProgress();
+    });
+    // Eight masks are CPU-side packed bytes, never GPU image textures.
+    for(let i=1;i<=8;i++)this.load.binary(`mask${i}`,`/assets/map/mask-${i}.bin`);
+    // Only animation frames and the two in-world props are required by Phaser.
+    // All 55 UI/cutscene/task illustrations are loaded by ordinary HTML <img>
+    // elements when their screens are shown, not during the initial preload.
+    const essentialArt=[...VICE_HEIST_WALK_UP,...VICE_HEIST_WALK_DOWN,...VICE_HEIST_KILL,...VICE_HEIST_GHOST,'task_console_glow','corpse_chalk_outline'];
+    for(const id of essentialArt)this.load.image(id,`/assets/vice-heist/${id}.png`);
   }
   create(){
     try {
-    this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
-    for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
+    console.info('[Vice Heist startup] Phaser scene setup started.');
+    performance.mark('vh-scene-setup-start');
+    this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();this.cameras.main.roundPixels=true;
+    this.cameras.main.centerOn(me.x,me.y);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
     // Four-frame walk cycles at 5fps hold each pose for 200ms.
     register('vh-walk-up',VICE_HEIST_WALK_UP,5);register('vh-walk-down',VICE_HEIST_WALK_DOWN,5);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,5);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});sceneRef=this;
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});
+    this.game.canvas.addEventListener('webglcontextlost',()=>console.error('[Vice Heist startup] WebGL context lost during gameplay/startup.'));
+    sceneRef=this;
     if(latest)this.syncState(latest);
-    phaserSceneReady=true;updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
+    this.streamMapTiles(true);
     } catch(error) {
-      phaserLoadError=error instanceof Error?error.message:String(error);window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
+      phaserLoadError=error instanceof Error?error.message:String(error);
+      console.error('[Vice Heist startup] Scene setup failed:',error);
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
     }
   }
   stopMovement(force=false){
@@ -570,10 +604,15 @@ class Estate extends Phaser.Scene {
     this.moving=false;
     const epoch=++this.moveSequence;
     const request=++this.movementRequestSequence;
+    // Ignore periodic snapshots until this exact release has been acknowledged.
+    // Otherwise an older 50ms snapshot briefly becomes the stop target and the
+    // character visibly recoils before the real acknowledgement arrives.
+    awaitingStopAck=true;
     socket.emit('move',{x:0,y:0,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
       this.lastAppliedMovementAck=request;
       serverMe.x=ack.x!;serverMe.y=ack.y!;
+      awaitingStopAck=false;
       lastMovementAckAt=Date.now();
     });
   }
@@ -584,17 +623,77 @@ class Estate extends Phaser.Scene {
   }
   private loadMasks(){
     for(let i=1;i<=8;i++){
-      const image=this.textures.get(`mask${i}`).getSourceImage() as HTMLImageElement;
-      const canvas=document.createElement('canvas');canvas.width=2048;canvas.height=2048;const ctx=canvas.getContext('2d',{willReadFrequently:true});
-      if(!ctx||image.width!==2048||image.height!==2048){throw new Error(`Collision mask ${i} must be 2048 × 2048.`);}
-      ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,2048,2048).data;const bits=new Uint8Array((2048*2048+7)>>3);
-      for(let p=0,j=0;p<2048*2048;p++,j+=4){
-        const solid=pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200;
-        if(!solid)continue;
-        bits[p>>3]|=1<<(p&7);
-      }
-      this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
+      const packed=this.cache.binary.get(`mask${i}`) as ArrayBuffer | Uint8Array | undefined;
+      const bits=packed instanceof ArrayBuffer?new Uint8Array(packed):packed instanceof Uint8Array?packed:undefined;
+      if(!bits||bits.byteLength!==524288)throw new Error(`Packed collision mask ${i} must be 524,288 bytes.`);
+      this.masks.push(bits);
+      this.cache.binary.remove(`mask${i}`);
     }
+    console.info('[Vice Heist startup] Loaded eight packed collision masks (4 MiB CPU memory; no mask GPU textures).');
+  }
+  private finishSceneReady(){
+    if(phaserSceneReady)return;
+    const missing=[...this.initialMapTiles].filter(index=>!this.mapTiles.has(index));
+    if(missing.length){
+      const message='Initial estate map sector load failed: '+missing.map(index=>index+1).join(', ');
+      phaserLoadError=message;console.error('[Vice Heist startup]',message);
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:message}));return;
+    }
+    phaserSceneReady=true;mapLoadProgress=1;
+    performance.mark('vh-game-ready');
+    console.info('[Vice Heist startup] Scene ready; initial sectors:',[...this.initialMapTiles].map(index=>index+1));
+    updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
+  }
+  private pumpMapTiles(){
+    if(this.mapLoadInFlight)return;
+    const pending=[...this.mapDesired].filter(index=>!this.mapTiles.has(index)&&!this.mapLoading.has(index));
+    if(!pending.length){this.finishSceneReady();return;}
+    this.mapLoadInFlight=true;mapLoadProgress=0;updateSplashProgress();
+    for(const index of pending){this.mapLoading.add(index);this.load.image(`map${index+1}`,`/assets/map/take-${index+1}.webp`);}
+    this.load.once('complete',()=>{
+      this.mapLoadInFlight=false;
+      for(const index of pending){
+        this.mapLoading.delete(index);
+        const key=`map${index+1}`;
+        if(this.textures.exists(key)){
+          const col=index%4,row=Math.floor(index/4);
+          // A 2-world-pixel overlap prevents linear-filtering/camera rounding
+          // from exposing hairline seams between adjacent map sectors.
+          const tile=this.add.image(col*2048+1024,row*2048+1024,key).setDepth(0).setDisplaySize(2050,2050);
+          this.mapTiles.set(index,tile);
+        }else{
+          console.error('[Vice Heist map streaming] Sector texture unavailable:',key);
+        }
+      }
+      mapLoadProgress=1;updateSplashProgress();
+      this.finishSceneReady();
+      this.pumpMapTiles();
+    });
+    this.load.start();
+  }
+  private streamMapTiles(initial=false){
+    const camera=this.cameras.main;
+    const centerX=this.actors.get(myId)?.x??me.x,centerY=this.actors.get(myId)?.y??me.y;
+    const worldWidth=(this.scale.width||innerWidth)/Math.max(.01,camera.zoom);
+    const worldHeight=(this.scale.height||innerHeight)/Math.max(.01,camera.zoom);
+    const margin=420;
+    const left=Phaser.Math.Clamp(centerX-worldWidth/2-margin,0,8191);
+    const right=Phaser.Math.Clamp(centerX+worldWidth/2+margin,0,8191);
+    const top=Phaser.Math.Clamp(centerY-worldHeight/2-margin,0,4095);
+    const bottom=Phaser.Math.Clamp(centerY+worldHeight/2+margin,0,4095);
+    const minCol=Math.floor(left/2048),maxCol=Math.floor(right/2048);
+    const minRow=Math.floor(top/2048),maxRow=Math.floor(bottom/2048);
+    const desired=new Set<number>();
+    for(let row=minRow;row<=maxRow;row++)for(let col=minCol;col<=maxCol;col++)desired.add(row*4+col);
+    if(initial)this.initialMapTiles=new Set(desired);
+    this.mapDesired=desired;
+    for(const [index,tile] of this.mapTiles){
+      if(!desired.has(index)){
+        tile.destroy();this.mapTiles.delete(index);
+        this.textures.remove(`map${index+1}`);
+      }
+    }
+    this.pumpMapTiles();
   }
   private solid(x:number,y:number):boolean{
     if(x<0||y<0||x>=8192||y>=4096)return true;if(this.masks.length!==8)return true;
