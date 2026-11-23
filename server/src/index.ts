@@ -180,9 +180,13 @@ function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boole
   let best:{x:number;y:number;score:number}|undefined;
   for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
     const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
-    const canX=!blocked(nx,bot.y,18),canY=!blocked(bot.x,ny,18);
-    const candidateX=canX?nx:bot.x,candidateY=canY?ny:bot.y;
-    if(!canX&&!canY)continue;
+    // Apply the same axis-separated collision sweep as normal bot movement;
+    // checking X and Y independently from the old position can cut a diagonal
+    // corner and leave an NPC inside a solid mask pixel.
+    let candidateX=bot.x,candidateY=bot.y;
+    if(!blocked(nx,candidateY,18))candidateX=nx;
+    if(!blocked(candidateX,ny,18))candidateY=ny;
+    if(Math.hypot(candidateX-bot.x,candidateY-bot.y)<0.1)continue;
     const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
     if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
   }
