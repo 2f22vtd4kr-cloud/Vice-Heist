@@ -582,6 +582,12 @@ class Estate extends Phaser.Scene {
     console.info('[Vice Heist startup] Phaser scene setup started.');
     performance.mark('vh-scene-setup-start');
     this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();this.cameras.main.roundPixels=true;
+    // A resumed session may already have supplied its snapshot during splash.
+    // Load the correct nearby sectors first instead of briefly showing spawn-area
+    // tiles while the camera catches up to the returning player.
+    const startupSnapshot=latest||pendingSnapshot;
+    const startupLocal=startupSnapshot?.players.find(p=>p.id===myId);
+    if(startupLocal){me.x=serverMe.x=startupLocal.x;me.y=serverMe.y=startupLocal.y;}
     this.cameras.main.centerOn(me.x,me.y);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
     // Four-frame walk cycles at 5fps hold each pose for 200ms.
@@ -591,7 +597,7 @@ class Estate extends Phaser.Scene {
     this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});
     this.game.canvas.addEventListener('webglcontextlost',()=>console.error('[Vice Heist startup] WebGL context lost during gameplay/startup.'));
     sceneRef=this;
-    if(latest)this.syncState(latest);
+    if(startupSnapshot)this.syncState(startupSnapshot);
     this.streamMapTiles(true);
     } catch(error) {
       phaserLoadError=error instanceof Error?error.message:String(error);
