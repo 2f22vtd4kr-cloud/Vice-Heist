@@ -509,7 +509,7 @@ function renderState(s: Snapshot) {
       // A release snapshot can arrive before its Socket.IO acknowledgement.
       // Never let that older sample replace the authoritative stop target.
       if(!awaitingStopAck&&Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
-      if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}
+      if(!awaitingStopAck&&(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260)){me.x=local.x;me.y=local.y;}
     }
   }
   sceneRef?.syncState(s);
