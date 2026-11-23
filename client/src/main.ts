@@ -113,8 +113,6 @@ function preloadMenuFrame(): Promise<void> {
         if (doc && menuRoot?.classList.contains('is-ready') && stage && !stage.inert) {
           finish();
           return;
-          finish();
-          return;
         }
       } catch { /* A not-yet-committed iframe document is still loading. */ }
       if (Date.now() >= deadline) {
