@@ -26,8 +26,6 @@ let lastFootstep = 0;
 let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
 let serverMe = { x: 3000, y: 2070 };
-let lastMovementAckAt = 0;
-let awaitingStopAck = false;
 let initializedPlayerId = ''; // First authoritative snapshot initializes a new local player.
 let chatLines: string[] = [];
 let roleShown = false;
@@ -403,8 +401,9 @@ function wireControls() {
 }
 function openMapOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
-  const tasks=latest.tasks.map(t=>`<div class="map-task ${t.done?'done':''}"><img src="${artUrl('icon_task_marker')}" alt=""><span>${escapeHtml(t.label)}</span><b>${t.done?'SECURED':'OPEN'}</b></div>`).join('');
-  m.innerHTML=`<div class="meetingbox art-panel map-panel"><button class="panel-close" id="map-close">×</button><p class="eyebrow">OCEAN DRIVE ESTATE</p><h3>Estate map</h3><img class="map-frame-art" src="${artUrl('overlay_estate_map')}" alt=""><div class="map-radar-art"><img src="${artUrl('overlay_admin_radar')}" alt=""><div class="map-radar-dots">${latest.players.map(p=>`<img src="${artUrl('icon_admin_blip')}" alt="" style="left:${p.x/8192*100}%;top:${p.y/4096*100}%">`).join('')}</div></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<div class="map-task-list">${tasks}</div></div>`;
+  const tasks=latest.tasks.map(t=>`<div class="map-task ${t.done?'done':''}"><img src="${artUrl('icon_task_marker')}" alt=""><span>${escapeHtml(t.label)}</span><b>${t.done?'DONE':'OPEN'}</b></div>`).join('');
+  const players=latest.players.map(p=>`<img src="${artUrl('icon_admin_blip')}" alt="" title="${escapeHtml(p.name)}" style="left:${p.x/8192*100}%;top:${p.y/4096*100}%">`).join('');
+  m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE</p><h3>Estate map</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="map-visual"><img class="map-frame-art" src="${artUrl('overlay_estate_map')}" alt="Estate layout"><div class="map-radar-dots">${players}</div></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
   m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
 }
 function openSettingsOverlay(){
@@ -479,6 +478,8 @@ function renderMeeting(s: Snapshot) {
 function updateHud(s: Snapshot | null) {
   if(!s||currentPhase!=='PLAYING')return;
   const done=s.tasks.filter(t=>t.done).length;const objective=document.querySelector('#objective');const local=s.players.find(p=>p.id===myId);
+  const actions=document.querySelector<HTMLElement>('.actions');if(actions)actions.style.display=local?.alive?'grid':'none';
+  const controls=document.querySelector<HTMLElement>('.controls');controls?.classList.toggle('ghost-controls',!!local&&!local.alive);
   if(objective){const label=objective.querySelector<HTMLElement>('.objective-label');if(label)label.textContent=local?.alive?`${done}/${s.taskTotal} estate jobs secured · ${s.selfRole==='MOLE'?'You are the Mole':'Find the Mole'}`:'YOU ARE DOWN · SPECTATING';const fill=objective.querySelector<HTMLElement>('#objective-fill');if(fill)fill.style.width=`${s.taskTotal?Math.round(done/s.taskTotal*100):0}%`;}
   const radar=document.querySelector<HTMLDivElement>('#radar');if(radar){
     const tasks=s.tasks.map(t=>'<i class="radar-task '+(t.done?'done':'')+'" style="left:'+(t.x/8192*100)+'%;top:'+(t.y/4096*100)+'%"></i>').join('');
@@ -504,13 +505,10 @@ function renderState(s: Snapshot) {
       initializedPlayerId=local.id;
       me.x=serverMe.x=local.x;
       me.y=serverMe.y=local.y;
-      lastMovementAckAt=0;
-    }else{
-      // A release snapshot can arrive before its Socket.IO acknowledgement.
-      // Never let that older sample replace the authoritative stop target.
-      if(!awaitingStopAck&&Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
-      if(!awaitingStopAck&&(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260)){me.x=local.x;me.y=local.y;}
+      sceneRef?.resetLocalSamples();
     }
+    // Server snapshots are the sole position authority. The renderer buffers
+    // these samples instead of integrating a second, competing local position.
   }
   sceneRef?.syncState(s);
   if(s.phase==='LOBBY'){if(currentPhase!=='LOBBY')lobby(s);else updateLobby(s);}
@@ -610,18 +608,13 @@ class Estate extends Phaser.Scene {
     this.moving=false;
     const epoch=++this.moveSequence;
     const request=++this.movementRequestSequence;
-    // Ignore periodic snapshots until this exact release has been acknowledged.
-    // Otherwise an older 50ms snapshot briefly becomes the stop target and the
-    // character visibly recoils before the real acknowledgement arrives.
-    awaitingStopAck=true;
     socket.emit('move',{x:0,y:0,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
       this.lastAppliedMovementAck=request;
       serverMe.x=ack.x!;serverMe.y=ack.y!;
-      awaitingStopAck=false;
-      lastMovementAckAt=Date.now();
     });
   }
+  resetLocalSamples(){this.remoteSamples.delete(myId);}
   private applyCameraZoom(){
     const width=this.scale.width||innerWidth,height=this.scale.height||innerHeight;
     const fit=Math.min(width/760,height/1180);
@@ -665,7 +658,10 @@ class Estate extends Phaser.Scene {
           const col=index%4,row=Math.floor(index/4);
           // A 2-world-pixel overlap prevents linear-filtering/camera rounding
           // from exposing hairline seams between adjacent map sectors.
-          const tile=this.add.image(col*2048+1024,row*2048+1024,key).setDepth(0).setDisplaySize(2050,2050);
+          // Extend each opaque sector 8 world pixels beneath its neighbours.
+          // This is a real overlap (not a one-pixel rescale) so subpixel camera
+          // sampling cannot reveal the transparent/filtering boundary.
+          const tile=this.add.image(col*2048+1024,row*2048+1024,key).setDepth(0).setDisplaySize(2064,2064);
           this.mapTiles.set(index,tile);
         }else{
           console.error('[Vice Heist map streaming] Sector texture unavailable:',key);
@@ -718,8 +714,22 @@ class Estate extends Phaser.Scene {
   }
   syncState(s:Snapshot){
     const local=s.players.find(p=>p.id===myId);
-    if(local){const wasAlive=this.previousAlive.get(local.id);if(wasAlive===true&&!local.alive)showEliminationCutscene();this.previousAlive.set(local.id,local.alive);let a=this.actors.get(local.id);if(!a){const created=this.add.sprite(me.x,me.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);a=created;this.actors.set(local.id,created);this.cameras.main.startFollow(created,true,.30,.30);}if(a){
-      a.setAlpha(local.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);if(!local.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}}
+    if(local){
+      const wasAlive=this.previousAlive.get(local.id);
+      if(wasAlive===true&&!local.alive)showEliminationCutscene();
+      this.previousAlive.set(local.id,local.alive);
+      const samples=this.remoteSamples.get(local.id)||[];
+      samples.push({x:local.x,y:local.y,time:performance.now()});
+      if(samples.length>8)samples.shift();
+      this.remoteSamples.set(local.id,samples);
+      let a=this.actors.get(local.id);
+      if(!a){
+        a=this.add.sprite(local.x,local.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
+        this.actors.set(local.id,a);
+        this.cameras.main.startFollow(a,true,.30,.30);
+      }
+      a.setAlpha(local.alive?1:.92).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
+      if(!local.alive&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);
     }
     for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
@@ -754,17 +764,19 @@ class Estate extends Phaser.Scene {
     const width=canvas.clientWidth,height=canvas.clientHeight;
     ctx.clearRect(0,0,width,height);
     if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown)return;
-    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer?.alive)return;
+    const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer)return;
     const actor=this.actors.get(myId),originX=actor?.x??me.x,originY=actor?.y??me.y;
-    const radius=latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
+    const radius=!mePlayer.alive?430:latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
     const camera=this.cameras.main;
     // Match Phaser's camera matrix, including its viewport-origin offset.
-    const viewOriginX=camera.width*camera.originX,viewOriginY=camera.height*camera.originY;
-    const screenX=(worldX:number)=>camera.x+viewOriginX+(worldX-viewOriginX-camera.scrollX)*camera.zoomX;
-    const screenY=(worldY:number)=>camera.y+viewOriginY+(worldY-viewOriginY-camera.scrollY)*camera.zoomY;
+    // Phaser's scroll values already account for the camera origin. Applying
+    // the origin offset a second time makes the fog boundary slide as the
+    // camera follows the player, especially at non-1x zoom.
+    const screenX=(worldX:number)=>camera.x+(worldX-camera.scrollX)*camera.zoomX;
+    const screenY=(worldY:number)=>camera.y+(worldY-camera.scrollY)*camera.zoomY;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.72)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();
-    const rayCount=512,rayStep=4;
+    const rayCount=384,rayStep=6;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=radius,blockedAt=radius;
@@ -780,8 +792,11 @@ class Estate extends Phaser.Scene {
   update(time:number,delta:number){
     if(!this.ready)return;
     if(time-this.lastMapStreamAt>=200){this.lastMapStreamAt=time;this.streamMapTiles();}
-    const now=performance.now(),renderAt=now-100;
-    for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
+    const now=performance.now();
+    for(const [id,samples] of this.remoteSamples){
+      const actor=this.actors.get(id);if(!actor||!samples.length)continue;
+      const renderAt=now-(id===myId?50:100);
+      while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){
         let left=samples[0],right=samples[1],bracketed=false;
@@ -789,58 +804,42 @@ class Estate extends Phaser.Scene {
         else for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];bracketed=true;break;}}
         if(bracketed){const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
         else{
-          // Keep the final velocity instead of freezing on the last packet and
-          // jumping when the next 20Hz snapshot arrives. Times are milliseconds.
           left=samples[samples.length-2];right=samples[samples.length-1];
-          const span=Math.max(1,right.time-left.time),ahead=Math.min(120,Math.max(0,renderAt-right.time));
+          const span=Math.max(1,right.time-left.time),ahead=Math.min(id===myId?55:120,Math.max(0,renderAt-right.time));
           const vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy)*1000,scale=speed>0?Math.min(1,370/speed):0;
           x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;
         }
       }
-      actor.setPosition(x,y);const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;const player=latest?.players.find(p=>p.id===id);
-      if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
+      actor.setPosition(x,y);
+      if(id===myId){me.x=x;me.y=y;}
+      const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;
+      const player=latest?.players.find(p=>p.id===id);
+      if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}
+      else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
-    const local=latest.players.find(p=>p.id===myId);if(!local?.alive){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
+    const local=latest.players.find(p=>p.id===myId);if(!local){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
     if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
     const magnitude=Math.hypot(x,y);
     if(magnitude<.08){x=0;y=0;}
-    const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);
-    // Do not pull a moving predicted player toward an old network sample.
-    // Once input is released, converge smoothly to the stop acknowledgement.
-    if(!(x||y)&&!awaitingStopAck&&correction>.5){
-      // Hold the release acknowledgement as the single reconciliation target
-      // until prediction has converged. Otherwise a later snapshot can replace
-      // the target mid-ease and create the visible back-then-forward recoil.
-      lastMovementAckAt=Date.now();
-      const gain=1-Math.exp(-Math.max(0,delta)/220);
-      me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;
-    }else if(!(x||y)&&!awaitingStopAck&&correction>0){
-      me.x=serverMe.x;me.y=serverMe.y;
-    }
-    const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){
-      if(!this.moving){this.moving=true;this.moveSequence++;awaitingStopAck=false;}
-      const len=Math.hypot(x,y)||1;
-      const speedScale=Math.min(1,len);
-      const step=370*speedScale*Phaser.Math.Clamp(delta/1000,0,.08);
-      const moved=this.moveWithCollision(me.x,me.y,x/len*step,y/len*step);
-      me.x=moved.x;me.y=moved.y;
-      if(time-lastFootstep>320){tone(105,.035);lastFootstep=time;}
-      const actor=this.actors.get(myId);
-      if(actor){actor.setPosition(me.x,me.y);actor.setDepth(me.y);const key=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}
-      if(time-this.lastEmit>50){
+      if(!this.moving){this.moving=true;this.moveSequence++;}
+      if(time-this.lastEmit>=50){
         const epoch=this.moveSequence,request=++this.movementRequestSequence;
         socket.emit('move',{x,y,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
           if(epoch!==this.moveSequence||!this.moving||request<=this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
           this.lastAppliedMovementAck=request;
-          serverMe.x=ack.x!;serverMe.y=ack.y!;lastMovementAckAt=Date.now();
+          serverMe.x=ack.x!;serverMe.y=ack.y!;
         });
         this.lastEmit=time;
       }
-    }else{if(this.moving)this.stopMovement();const actor=this.actors.get(myId);if(actor){if(actor.anims.isPlaying)actor.stop();const local=latest.players.find(p=>p.id===myId);const color=local?.color||'#e4e7ec';actor.setTexture(local?.alive===false?'ghost_float_1':'walk_down_1');}}
+    }else{
+      if(this.moving)this.stopMovement();
+      const actor=this.actors.get(myId);
+      if(actor&&local.alive){if(actor.anims.isPlaying)actor.stop();actor.setTexture('walk_down_1');}
+    }
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
     const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.corpseX,p.corpseY,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.corpseX,p.corpseY).setDepth(9);}
@@ -857,7 +856,7 @@ socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
 window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement(true);}});
-socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);awaitingStopAck=false;serverMe.x=me.x;serverMe.y=me.y;toast('Connection lost. Reconnecting…');});
+socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);serverMe.x=me.x;serverMe.y=me.y;toast('Connection lost. Reconnecting…');});
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false,roundPixels:true},scene:[Estate],physics:{default:'arcade'}});
 void showSplash();
