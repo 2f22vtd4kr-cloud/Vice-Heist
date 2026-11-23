@@ -23,7 +23,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(predicate, timeoutMs = 8_000, message = 'condition') {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
-    const value = predicate();
+    const value = await predicate();
     if (value) return value;
     if (child.exitCode !== null) throw new Error('Game server exited unexpectedly.');
     await wait(25);
