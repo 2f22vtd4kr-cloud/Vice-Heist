@@ -15,7 +15,7 @@ const port = await unusedPort();
 const origin = 'http://127.0.0.1:' + port;
 const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false' },
+  env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false', VICE_HEIST_TEST_SEED: '20261123' },
   stdio: 'ignore',
 });
 let socket;
