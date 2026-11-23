@@ -23,6 +23,10 @@ function sendMove(x, y, epoch = movementEpoch, requestId = ++movementRequestId) 
 async function holdMove(x, y, durationMs) {
   const until = Date.now() + durationMs;
   while (Date.now() < until) { await sendMove(x, y); await wait(45); }
+  // End the movement lease before the caller samples the final position.
+  // Otherwise the server legitimately advances during the test's snapshot
+  // wait and the nominal 320ms distance includes unmeasured extra movement.
+  await sendMove(0, 0);
 }
 function emitAck(event, payload) {
   return new Promise((resolve, reject) => {
