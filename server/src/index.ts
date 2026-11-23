@@ -13,6 +13,12 @@ const io = new Server(http, { cors: { origin: true, credentials: false }, maxHtt
 const PORT = Number(process.env.PORT) || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const REQUIRE_TELEGRAM_AUTH = process.env.REQUIRE_TELEGRAM_AUTH === 'true';
+// Production remains nondeterministic. The optional seed makes bot-navigation
+// regression runs reproducible so a stuck-NPC failure can be diagnosed exactly.
+let randomState = Number(process.env.VICE_HEIST_TEST_SEED) >>> 0;
+const random = process.env.VICE_HEIST_TEST_SEED
+  ? () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState / 0x1_0000_0000; }
+  : () => Math.random();
 const ROOT = process.cwd();
 const webRoot = existsSync(path.join(ROOT, 'dist/client')) ? path.join(ROOT, 'dist/client') : path.join(ROOT, 'client');
 app.get('/health', (_req, res) => res.json({ ok: true, game: 'Vice Heist', version: '1.0.1' }));
@@ -169,6 +175,20 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   }
   if(previous[goal]===-2)return[];const path:number[]=[];for(let at=goal;at!==-1;at=previous[at])path.push(at);path.reverse();return path;
 }
+function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boolean{
+  const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
+  let best:{x:number;y:number;score:number}|undefined;
+  for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
+    const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
+    const canX=!blocked(nx,bot.y,18),canY=!blocked(bot.x,ny,18);
+    const candidateX=canX?nx:bot.x,candidateY=canY?ny:bot.y;
+    if(!canX&&!canY)continue;
+    const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
+    if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
+  }
+  if(!best)return false;
+  bot.x=best.x;bot.y=best.y;return true;
+}
 function moveBotToward(bot:Player,target:{x:number;y:number},speed:number,dtSeconds:number,key:string,now:number){
   const step=speed*dtSeconds;
   let route=botRoutes.get(bot.id);
@@ -178,24 +198,26 @@ function moveBotToward(bot:Player,target:{x:number;y:number},speed:number,dtSeco
     route={key,goalX:target.x,goalY:target.y,path:findBotPath(bot,target),index:0,plannedAt:now,lastX:bot.x,lastY:bot.y,stuckSince:now};botRoutes.set(bot.id,route);
   }
   if(!route.path.length){
-    // A narrow doorway or temporarily blocked goal can defeat a coarse route.
-    // Try short collision-safe steering angles so an NPC does not freeze.
-    const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
-    let best:{x:number;y:number;score:number}|undefined;
-    for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
-      const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
-      const canX=!blocked(nx,bot.y,18),canY=!blocked(bot.x,ny,18);
-      const candidateX=canX?nx:bot.x,candidateY=canY?ny:bot.y;
-      if(!canX&&!canY)continue;
-      const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
-      if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
-    }
-    if(best){bot.x=best.x;bot.y=best.y;route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
+    // A* can return a geometrically valid coarse path whose first waypoint is
+    // still unreachable by the radius-aware collision sweep. Use local
+    // collision-safe steering rather than leaving the NPC frozen indefinitely.
+    if(steerBotToward(bot,target,step)){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
     return;
   }
   while(route.index<route.path.length-1){const point=cellCenter(route.path[route.index]);if(Math.hypot(point.x-bot.x,point.y-bot.y)>42)break;route.index++;}
   const point=cellCenter(route.path[Math.min(route.index,route.path.length-1)]),dx=point.x-bot.x,dy=point.y-bot.y,d=Math.hypot(dx,dy)||1;
-  const travel=Math.min(step,d),nx=bot.x+dx/d*travel,ny=bot.y+dy/d*travel;if(!blocked(nx,bot.y,18))bot.x=nx;if(!blocked(bot.x,ny,18))bot.y=ny;
+  const travel=Math.min(step,d),nx=bot.x+dx/d*travel,ny=bot.y+dy/d*travel;
+  const beforeX=bot.x,beforeY=bot.y;
+  if(!blocked(nx,bot.y,18))bot.x=nx;
+  if(!blocked(bot.x,ny,18))bot.y=ny;
+  const moved=Math.hypot(bot.x-beforeX,bot.y-beforeY);
+  if(moved<0.5){
+    // Do not keep retrying the same blocked first waypoint for four seconds.
+    // Drop the coarse path and take a safe local step around the obstruction.
+    route.path=[];route.index=0;route.plannedAt=now;
+    if(steerBotToward(bot,target,step)){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
+    return;
+  }
   if(Math.hypot(bot.x-route.lastX,bot.y-route.lastY)>4){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
 }
 function hasLineOfSight(a:{x:number;y:number},b:{x:number;y:number}):boolean{
