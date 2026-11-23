@@ -296,7 +296,7 @@ function botsTick(r: Room, now: number) {
           const visible=hasLineOfSight(bot,candidate);
           const previous=botHuntTargets.get(bot.id);
           const repeatPenalty=previous?.targetId===candidate.id&&now-previous.selectedAt<9000?420:0;
-          const playerBias=candidate.bot?-120:0;
+          const playerBias=candidate.bot?120:0;
           return {candidate,distance,visible,score:distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+playerBias};
         }).sort((a,b)=>a.score-b.score);
         const previous=botHuntTargets.get(bot.id);
