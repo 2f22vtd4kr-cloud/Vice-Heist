@@ -319,15 +319,10 @@ function botsTick(r: Room, now: number) {
         const victim=crew.map(entry=>entry.candidate)
           .filter(p=>{
             const distance=Math.hypot(p.x-bot.x,p.y-bot.y);
-            // At sprite-overlap distance, wall-ray sampling can report a false
-            // obstruction because the two character centers occupy adjacent
-            // collision-mask pixels. Keep LOS for normal range, but never let
-            // a bot orbit a player it has physically reached.
-            // Bot navigation already respects the collision mask. Requiring a
-          // second center-to-center ray here causes false negatives when a
-          // character sprite overlaps a wall edge; once in range, contact is
-          // sufficient for the NPC elimination check.
-          return distance<125;
+            // Preserve wall occlusion at normal attack range. At true sprite
+            // overlap, tolerate a one-cell mask edge discrepancy so the NPC
+            // cannot orbit a player it has physically reached.
+            return distance<125&&(hasLineOfSight(bot,p)||distance<48);
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
