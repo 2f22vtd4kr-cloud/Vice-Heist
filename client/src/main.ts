@@ -111,8 +111,8 @@ function preloadMenuFrame(): Promise<void> {
         const menuRoot = doc?.querySelector<HTMLElement>('#app');
         const stage = doc?.querySelector<HTMLElement>('#stage');
         if (doc && menuRoot?.classList.contains('is-ready') && stage && !stage.inert) {
-          menuAssetProgress = 1;
-          updateSplashProgress();
+          finish();
+          return;
           finish();
           return;
         }
