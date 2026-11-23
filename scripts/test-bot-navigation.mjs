@@ -85,6 +85,10 @@ try {
   assert.ok(livingBots.length >= 3, 'expected at least three surviving NPCs, observed ' + livingBots.length);
   assert.ok(movedBots.length >= Math.min(2, livingBots.length), 'expected at least two surviving bots to navigate, observed ' + movedBots.length + '/' + livingBots.length);
   assert.ok(completedTasks >= 1, 'expected crew bots to complete an estate task, observed ' + completedTasks);
+  const humanPlayer=latest.players.find(player=>player.id===started.playerId);
+  if(latest.selfRole==='CREW'){
+    assert.equal(humanPlayer.alive,false,'when the human is Crew, the killer NPC must successfully eliminate the human during the 25-second bot hunt regression');
+  }
   assert.deepEqual(stuckBots, [], 'living bots must not remain stationary away from tasks or other players: ' + stuckBots.join(', '));
   console.log('Bot navigation regression passed: ' + movedBots.length + '/' + livingBots.length + ' surviving bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
 } finally {
