@@ -9,6 +9,7 @@ const atlas = JSON.parse(fs.readFileSync(path.join(root, 'atlas.json'), 'utf8'))
 const required = [
   ...Array.from({length:8},(_,i)=>asset('map',`take-${i+1}.webp`)),
   ...Array.from({length:8},(_,i)=>asset('map',`mask-${i+1}.png`)),
+  ...Array.from({length:8},(_,i)=>asset('map',`mask-${i+1}.bin`)),
   asset('map','collision.png'),
   asset('characters','balaclava-sheet.webp'),
   ...['balaclava-creature-sheet-original.png'].map(name=>source('characters',name)),
@@ -24,9 +25,13 @@ for (const file of required) {
 for (let i=1;i<=8;i++) {
   const file=asset('map',`mask-${i}.png`), png=PNG.sync.read(fs.readFileSync(file));
   if(png.width!==2048||png.height!==2048)throw new Error(`Mask ${i} must be 2048×2048.`);
+  const packed=fs.readFileSync(asset('map',`mask-${i}.bin`));
+  if(packed.length!==524288)throw new Error(`Packed mask ${i} must be exactly 524,288 bytes; found ${packed.length}.`);
   for(let p=0,j=0;p<2048*2048;p++,j+=4){
     const v=png.data[j];
     if((v!==0&&v!==255)||png.data[j+1]!==v||png.data[j+2]!==v)throw new Error(`Mask ${i} contains non-binary or non-grayscale pixels.`);
+    const packedSolid=(packed[p>>3]&(1<<(p&7)))!==0;
+    if(packedSolid!==(v>200))throw new Error(`Packed mask ${i} differs from its PNG source at pixel ${p}.`);
   }
 }
 if(fs.statSync(asset('map','collision.png')).size<1000)throw new Error('Stitched collision atlas is missing or unexpectedly small.');
@@ -45,4 +50,4 @@ for(const [sheetKey,sheet] of Object.entries(atlas.sheets)){
 }
 const manifest=JSON.parse(fs.readFileSync(asset('vice-heist','manifest.json'),'utf8'));
 if(Object.keys(manifest.assets||{}).length!==frameCount)throw new Error('Runtime art manifest does not cover every sliced frame.');
-console.log(`Asset validation passed: 8 map sectors, 8 binary masks and ${frameCount} named frames from all six supplied art sheets.`);
+console.log(`Asset validation passed: 8 map sectors, 8 bit-exact packed collision masks and ${frameCount} named frames from all six supplied art sheets.`);

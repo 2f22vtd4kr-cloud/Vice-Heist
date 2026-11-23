@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type { Snapshot, PublicPlayer, Task } from '../../shared/types';
 import './style.css';
-import { VICE_HEIST_ASSET_IDS, VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
+import { VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
 
 declare global {
   interface Window {
@@ -27,6 +27,7 @@ let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
 let serverMe = { x: 3000, y: 2070 };
 let lastMovementAckAt = 0;
+let awaitingStopAck = false;
 let initializedPlayerId = ''; // First authoritative snapshot initializes a new local player.
 let chatLines: string[] = [];
 let roleShown = false;
@@ -39,11 +40,13 @@ let pendingSnapshot: Snapshot | null = null;
 let pendingResumeNotice = '';
 let phaserLoadProgress = 0;
 let splashAssetProgress = 0;
-let menuAssetProgress = 0;
+let mapLoadProgress = 0;
+let phaserAssetsLoaded = false;
 let phaserSceneReady = false;
 let phaserLoadError = '';
 let menuFrame: HTMLIFrameElement | null = null;
 let menuFrameReady = false;
+let menuPreloadPromise: Promise<void> | null = null;
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
 const CREATURE_COLOR_COLUMNS: Record<string, number> = { '#58c99b':0, '#6dd4d0':0, '#f45b5b':1, '#54b7f2':2, '#a98af5':3, '#f0bd4b':4, '#e78b4e':4, '#b6cf5b':4, '#e4e7ec':5, '#f18dc3':6 };
@@ -65,15 +68,17 @@ const splashCrew = [
 const splashTips = ['Casing the estate…', 'Bribing the valet…', 'Looping the security cameras…', 'Cracking the vault…', 'Fuelling the getaway boat…', 'Checking who’s wearing a wire…'];
 
 function updateSplashProgress() {
-  const progress = Math.min(99, Math.floor((phaserLoadProgress * .68 + splashAssetProgress * .10 + menuAssetProgress * .17 + (phaserSceneReady ? .05 : 0)) * 100));
+  // The bar tracks only work required to enter a playable world. The optional
+  // illustrated menu is deliberately excluded so it cannot stall startup.
+  const progress = Math.min(99, Math.floor((phaserLoadProgress * .68 + splashAssetProgress * .12 + mapLoadProgress * .15 + (phaserSceneReady ? .05 : 0)) * 100));
   const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
   const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
   const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
   if (fill) fill.style.width = progress + '%';
   if (pct) pct.textContent = progress + '%';
-  if (tip) tip.textContent = phaserLoadProgress < 1 ? 'Loading estate and collision data…' :
+  if (tip) tip.textContent = phaserLoadProgress < 1 ? 'Loading essential game assets…' :
     splashAssetProgress < 1 ? 'Preparing the crew…' :
-    menuAssetProgress < 1 ? 'Setting up the main menu…' :
+    mapLoadProgress < 1 ? 'Loading nearby estate sectors…' :
     !phaserSceneReady ? 'Finalising the game world…' : 'All systems ready.';
 }
 
@@ -88,9 +93,8 @@ function preloadMenuFrame(): Promise<void> {
     frame.loading = 'eager';
     menuFrame = frame;
     let settled = false;
-    // Keep the cinematic menu in the splash preload barrier. The splash may
-    // finish its game assets first, but must not transition to a plain fallback
-    // while this richer menu is still loading in the background.
+    // The illustrated menu is an optional post-readiness enhancement. Its
+    // load never competes with essential Phaser assets or blocks splash readiness.
     const deadline = Date.now() + 20_000;
     let diagnosticTimer = 0;
     const finish = (error?: Error) => {
@@ -107,8 +111,6 @@ function preloadMenuFrame(): Promise<void> {
         const menuRoot = doc?.querySelector<HTMLElement>('#app');
         const stage = doc?.querySelector<HTMLElement>('#stage');
         if (doc && menuRoot?.classList.contains('is-ready') && stage && !stage.inert) {
-          menuAssetProgress = 1;
-          updateSplashProgress();
           finish();
           return;
         }
@@ -159,7 +161,15 @@ async function showSplash() {
     button.classList.add('vh-phase-entering');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<strong class="vh-entering-title">You’re in.</strong><span class="vh-entering-copy">The crew is assembling…</span>';
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
+      // The splash is already ready. If the user enters immediately, allow
+      // the optional illustrated menu a chance to finish without blocking
+      // game startup itself; the bounded preload falls back cleanly on error.
+      if (menuPreloadPromise && !menuFrameReady) {
+        const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
+        if (panel) panel.innerHTML = '<strong class="vh-entering-title">Preparing the main menu…</strong>';
+        await menuPreloadPromise;
+      }
       splashDismissed = true;
       const next = pendingSnapshot;
       pendingSnapshot = null;
@@ -210,29 +220,29 @@ async function showSplash() {
       window.removeEventListener('vh:game-error', failed);
       window.clearTimeout(timeout);
     };
-    const timeout = window.setTimeout(() => { cleanup(); reject(new Error('The game world took too long to initialise.')); }, 90_000);
+    const timeout = window.setTimeout(() => {
+      const message = phaserAssetsLoaded
+        ? 'Scene setup stalled after essential assets loaded (initial map sectors, collision data, or visibility canvas).'
+        : `Asset loading stalled at ${Math.floor(phaserLoadProgress * 100)}% of essential Phaser resources.`;
+      console.error('[Vice Heist startup] Timeout:', message);
+      cleanup();
+      reject(new Error(message));
+    }, 45_000);
     window.addEventListener('vh:game-ready', ready, { once: true });
     window.addEventListener('vh:game-error', failed, { once: true });
   });
 
-  // Load the real illustrated menu while the splash is visible. Do not let
-  // the automatic splash transition race ahead and permanently select the
-  // plain fallback before the menu iframe has finished initialising.
-  const menuPreload = preloadMenuFrame().then(() => {
-    menuAssetProgress = 1;
-    updateSplashProgress();
-  }).catch(error => {
-    menuFrameReady = false;
-    menuAssetProgress = 1;
-    updateSplashProgress();
-    console.warn('[Vice Heist] Illustrated menu preload unavailable; using the accessible fallback:', error);
-  });
-
   try {
-    await Promise.all([splashImages, gameReady, menuPreload]);
+    await Promise.all([splashImages, gameReady]);
     if (phaserLoadError) throw new Error(phaserLoadError);
     splashReady = true;
     updateSplashProgress();
+    // Begin the illustrated menu only after the essential scene and splash
+    // art are ready. This work is intentionally not part of the startup gate.
+    menuPreloadPromise = preloadMenuFrame().catch(error => {
+      menuFrameReady = false;
+      console.warn('[Vice Heist] Illustrated menu preload unavailable; using the accessible fallback:', error);
+    });
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
     const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
     const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
@@ -496,8 +506,10 @@ function renderState(s: Snapshot) {
       me.y=serverMe.y=local.y;
       lastMovementAckAt=0;
     }else{
-      if(Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
-      if(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260){me.x=local.x;me.y=local.y;}
+      // A release snapshot can arrive before its Socket.IO acknowledgement.
+      // Never let that older sample replace the authoritative stop target.
+      if(!awaitingStopAck&&Date.now()-lastMovementAckAt>500){serverMe.x=local.x;serverMe.y=local.y;}
+      if(!awaitingStopAck&&(!sceneRef||Math.hypot(local.x-me.x,local.y-me.y)>260)){me.x=local.x;me.y=local.y;}
     }
   }
   sceneRef?.syncState(s);
@@ -529,28 +541,68 @@ class Estate extends Phaser.Scene {
   private corpseArt = new Map<string, Phaser.GameObjects.Image>();
   private previousAlive = new Map<string, boolean>();
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionContext?: CanvasRenderingContext2D; private lastVision = 0;
+  private mapTiles = new Map<number, Phaser.GameObjects.Image>();
+  private mapDesired = new Set<number>();
+  private mapLoading = new Set<number>();
+  private mapLoadInFlight = false;
+  private initialMapTiles = new Set<number>();
+  private lastMapStreamAt = 0;
   constructor(){super('Estate');}
   preload(){
-    this.load.on('progress',(value:number)=>{phaserLoadProgress=Phaser.Math.Clamp(value,0,1);updateSplashProgress();});
-    this.load.on('loaderror',(file:any)=>{phaserLoadError='Failed to load game asset: '+file.key+' ('+file.src+')';window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));});
-    this.load.once('complete',()=>{phaserLoadProgress=1;updateSplashProgress();});
-    for(let i=1;i<=8;i++){this.load.image(`map${i}`,`/assets/map/take-${i}.webp`);this.load.image(`mask${i}`,`/assets/map/mask-${i}.png`);}
-    for (const id of VICE_HEIST_ASSET_IDS) this.load.image(id,`/assets/vice-heist/${id}.png`);
+    console.info('[Vice Heist startup] Essential Phaser preload started.');
+    performance.mark('vh-essential-preload-start');
+    // Avoid saturating iPhone Safari with too many simultaneous image decodes.
+    (this.load as any).maxParallelDownloads = 6;
+    this.load.on('progress',(value:number)=>{
+      if(phaserAssetsLoaded)mapLoadProgress=Phaser.Math.Clamp(value,0,1);
+      else phaserLoadProgress=Phaser.Math.Clamp(value,0,1);
+      updateSplashProgress();
+    });
+    this.load.on('loaderror',(file:any)=>{
+      phaserLoadError='Failed to load game asset: '+file.key+' ('+file.src+')';
+      console.error('[Vice Heist startup] Asset load error:',{key:file.key,url:file.src,afterEssentialPreload:phaserAssetsLoaded});
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));
+    });
+    this.load.once('complete',()=>{
+      phaserAssetsLoaded=true;phaserLoadProgress=1;mapLoadProgress=0;
+      performance.mark('vh-essential-preload-complete');
+      console.info('[Vice Heist startup] Essential assets loaded; preparing initial map sectors.');
+      updateSplashProgress();
+    });
+    // Eight masks are CPU-side packed bytes, never GPU image textures.
+    for(let i=1;i<=8;i++)this.load.binary(`mask${i}`,`/assets/map/mask-${i}.bin`);
+    // Only animation frames and the two in-world props are required by Phaser.
+    // All 55 UI/cutscene/task illustrations are loaded by ordinary HTML <img>
+    // elements when their screens are shown, not during the initial preload.
+    const essentialArt=[...VICE_HEIST_WALK_UP,...VICE_HEIST_WALK_DOWN,...VICE_HEIST_KILL,...VICE_HEIST_GHOST,'task_console_glow','corpse_chalk_outline'];
+    for(const id of essentialArt)this.load.image(id,`/assets/vice-heist/${id}.png`);
   }
   create(){
     try {
-    this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();
-    for(let i=0;i<8;i++)this.add.image((i%4)*2048+1024,Math.floor(i/4)*2048+1024,`map${i+1}`).setDepth(0);
+    console.info('[Vice Heist startup] Phaser scene setup started.');
+    performance.mark('vh-scene-setup-start');
+    this.cameras.main.setBounds(0,0,8192,4096);this.applyCameraZoom();this.cameras.main.roundPixels=true;
+    // A resumed session may already have supplied its snapshot during splash.
+    // Load the correct nearby sectors first instead of briefly showing spawn-area
+    // tiles while the camera catches up to the returning player.
+    const startupSnapshot=latest||pendingSnapshot;
+    const startupLocal=startupSnapshot?.players.find(p=>p.id===myId);
+    if(startupLocal){me.x=serverMe.x=startupLocal.x;me.y=serverMe.y=startupLocal.y;}
+    this.cameras.main.centerOn(me.x,me.y);
     const register=(key:string,frames:readonly string[],frameRate:number,repeat=-1)=>this.anims.create({key,frames:frames.map(frame=>({key:frame})),frameRate,repeat});
     // Four-frame walk cycles at 5fps hold each pose for 200ms.
     register('vh-walk-up',VICE_HEIST_WALK_UP,5);register('vh-walk-down',VICE_HEIST_WALK_DOWN,5);register('vh-kill-lunge',VICE_HEIST_KILL,12,0);register('vh-ghost-float',VICE_HEIST_GHOST,5);
     this.taskDots=this.add.graphics().setDepth(4);this.debugGraphics=this.add.graphics().setDepth(30);
     this.keys=this.input.keyboard!.addKeys('W,A,S,D,C');this.cursors=this.input.keyboard!.createCursorKeys();
-    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});sceneRef=this;
-    if(latest)this.syncState(latest);
-    phaserSceneReady=true;updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
+    this.loadMasks();this.ready=true;this.setupVision();this.scale.on('resize',()=>{this.applyCameraZoom();this.resizeVisionCanvas();});
+    this.game.canvas.addEventListener('webglcontextlost',()=>console.error('[Vice Heist startup] WebGL context lost during gameplay/startup.'));
+    sceneRef=this;
+    if(startupSnapshot)this.syncState(startupSnapshot);
+    this.streamMapTiles(true);
     } catch(error) {
-      phaserLoadError=error instanceof Error?error.message:String(error);window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
+      phaserLoadError=error instanceof Error?error.message:String(error);
+      console.error('[Vice Heist startup] Scene setup failed:',error);
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:phaserLoadError}));throw error;
     }
   }
   stopMovement(force=false){
@@ -558,10 +610,15 @@ class Estate extends Phaser.Scene {
     this.moving=false;
     const epoch=++this.moveSequence;
     const request=++this.movementRequestSequence;
+    // Ignore periodic snapshots until this exact release has been acknowledged.
+    // Otherwise an older 50ms snapshot briefly becomes the stop target and the
+    // character visibly recoils before the real acknowledgement arrives.
+    awaitingStopAck=true;
     socket.emit('move',{x:0,y:0,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
       if(epoch!==this.moveSequence||this.moving||request<this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
       this.lastAppliedMovementAck=request;
       serverMe.x=ack.x!;serverMe.y=ack.y!;
+      awaitingStopAck=false;
       lastMovementAckAt=Date.now();
     });
   }
@@ -572,17 +629,77 @@ class Estate extends Phaser.Scene {
   }
   private loadMasks(){
     for(let i=1;i<=8;i++){
-      const image=this.textures.get(`mask${i}`).getSourceImage() as HTMLImageElement;
-      const canvas=document.createElement('canvas');canvas.width=2048;canvas.height=2048;const ctx=canvas.getContext('2d',{willReadFrequently:true});
-      if(!ctx||image.width!==2048||image.height!==2048){throw new Error(`Collision mask ${i} must be 2048 × 2048.`);}
-      ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,2048,2048).data;const bits=new Uint8Array((2048*2048+7)>>3);
-      for(let p=0,j=0;p<2048*2048;p++,j+=4){
-        const solid=pixels[j]>200&&pixels[j+1]>200&&pixels[j+2]>200;
-        if(!solid)continue;
-        bits[p>>3]|=1<<(p&7);
-      }
-      this.masks.push(bits);canvas.width=1;canvas.height=1;this.textures.remove(`mask${i}`);
+      const packed=this.cache.binary.get(`mask${i}`) as ArrayBuffer | Uint8Array | undefined;
+      const bits=packed instanceof ArrayBuffer?new Uint8Array(packed):packed instanceof Uint8Array?packed:undefined;
+      if(!bits||bits.byteLength!==524288)throw new Error(`Packed collision mask ${i} must be 524,288 bytes.`);
+      this.masks.push(bits);
+      this.cache.binary.remove(`mask${i}`);
     }
+    console.info('[Vice Heist startup] Loaded eight packed collision masks (4 MiB CPU memory; no mask GPU textures).');
+  }
+  private finishSceneReady(){
+    if(phaserSceneReady)return;
+    const missing=[...this.initialMapTiles].filter(index=>!this.mapTiles.has(index));
+    if(missing.length){
+      const message='Initial estate map sector load failed: '+missing.map(index=>index+1).join(', ');
+      phaserLoadError=message;console.error('[Vice Heist startup]',message);
+      window.dispatchEvent(new CustomEvent('vh:game-error',{detail:message}));return;
+    }
+    phaserSceneReady=true;mapLoadProgress=1;
+    performance.mark('vh-game-ready');
+    console.info('[Vice Heist startup] Scene ready; initial sectors:',[...this.initialMapTiles].map(index=>index+1));
+    updateSplashProgress();window.dispatchEvent(new CustomEvent('vh:game-ready'));
+  }
+  private pumpMapTiles(){
+    if(this.mapLoadInFlight)return;
+    const pending=[...this.mapDesired].filter(index=>!this.mapTiles.has(index)&&!this.mapLoading.has(index));
+    if(!pending.length){this.finishSceneReady();return;}
+    this.mapLoadInFlight=true;mapLoadProgress=0;updateSplashProgress();
+    for(const index of pending){this.mapLoading.add(index);this.load.image(`map${index+1}`,`/assets/map/take-${index+1}.webp`);}
+    this.load.once('complete',()=>{
+      this.mapLoadInFlight=false;
+      for(const index of pending){
+        this.mapLoading.delete(index);
+        const key=`map${index+1}`;
+        if(this.textures.exists(key)){
+          const col=index%4,row=Math.floor(index/4);
+          // A 2-world-pixel overlap prevents linear-filtering/camera rounding
+          // from exposing hairline seams between adjacent map sectors.
+          const tile=this.add.image(col*2048+1024,row*2048+1024,key).setDepth(0).setDisplaySize(2050,2050);
+          this.mapTiles.set(index,tile);
+        }else{
+          console.error('[Vice Heist map streaming] Sector texture unavailable:',key);
+        }
+      }
+      mapLoadProgress=1;updateSplashProgress();
+      this.finishSceneReady();
+      this.pumpMapTiles();
+    });
+    this.load.start();
+  }
+  private streamMapTiles(initial=false){
+    const camera=this.cameras.main;
+    const centerX=this.actors.get(myId)?.x??me.x,centerY=this.actors.get(myId)?.y??me.y;
+    const worldWidth=(this.scale.width||innerWidth)/Math.max(.01,camera.zoom);
+    const worldHeight=(this.scale.height||innerHeight)/Math.max(.01,camera.zoom);
+    const margin=420;
+    const left=Phaser.Math.Clamp(centerX-worldWidth/2-margin,0,8191);
+    const right=Phaser.Math.Clamp(centerX+worldWidth/2+margin,0,8191);
+    const top=Phaser.Math.Clamp(centerY-worldHeight/2-margin,0,4095);
+    const bottom=Phaser.Math.Clamp(centerY+worldHeight/2+margin,0,4095);
+    const minCol=Math.floor(left/2048),maxCol=Math.floor(right/2048);
+    const minRow=Math.floor(top/2048),maxRow=Math.floor(bottom/2048);
+    const desired=new Set<number>();
+    for(let row=minRow;row<=maxRow;row++)for(let col=minCol;col<=maxCol;col++)desired.add(row*4+col);
+    if(initial)this.initialMapTiles=new Set(desired);
+    this.mapDesired=desired;
+    for(const [index,tile] of this.mapTiles){
+      if(!desired.has(index)){
+        tile.destroy();this.mapTiles.delete(index);
+        this.textures.remove(`map${index+1}`);
+      }
+    }
+    this.pumpMapTiles();
   }
   private solid(x:number,y:number):boolean{
     if(x<0||y<0||x>=8192||y>=4096)return true;if(this.masks.length!==8)return true;
@@ -662,6 +779,7 @@ class Estate extends Phaser.Scene {
   }
   update(time:number,delta:number){
     if(!this.ready)return;
+    if(time-this.lastMapStreamAt>=200){this.lastMapStreamAt=time;this.streamMapTiles();}
     const now=performance.now(),renderAt=now-100;
     for(const [id,samples] of this.remoteSamples){const actor=this.actors.get(id);if(!actor||!samples.length)continue;while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
@@ -692,19 +810,19 @@ class Estate extends Phaser.Scene {
     const correction=Math.hypot(serverMe.x-me.x,serverMe.y-me.y);
     // Do not pull a moving predicted player toward an old network sample.
     // Once input is released, converge smoothly to the stop acknowledgement.
-    if(!(x||y)&&correction>.5){
+    if(!(x||y)&&!awaitingStopAck&&correction>.5){
       // Hold the release acknowledgement as the single reconciliation target
       // until prediction has converged. Otherwise a later snapshot can replace
       // the target mid-ease and create the visible back-then-forward recoil.
       lastMovementAckAt=Date.now();
       const gain=1-Math.exp(-Math.max(0,delta)/220);
       me.x+=(serverMe.x-me.x)*gain;me.y+=(serverMe.y-me.y)*gain;
-    }else if(!(x||y)&&correction>0){
+    }else if(!(x||y)&&!awaitingStopAck&&correction>0){
       me.x=serverMe.x;me.y=serverMe.y;
     }
     const localActor=this.actors.get(myId);if(localActor)localActor.setPosition(me.x,me.y);
     if(x||y){
-      if(!this.moving){this.moving=true;this.moveSequence++;}
+      if(!this.moving){this.moving=true;this.moveSequence++;awaitingStopAck=false;}
       const len=Math.hypot(x,y)||1;
       const speedScale=Math.min(1,len);
       const step=370*speedScale*Phaser.Math.Clamp(delta/1000,0,.08);
@@ -730,7 +848,7 @@ class Estate extends Phaser.Scene {
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
     this.drawVision(time);
   }
-  shutdown(){this.stopMovement();this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
@@ -739,7 +857,7 @@ socket.on('notice',(message:string)=>{toast(message);tone(340);});
 socket.on('chat',(message:{name:string;text:string})=>{chatLines.push(`${message.name}: ${message.text}`);chatLines=chatLines.slice(-12);const el=document.querySelector('#chatlines');if(el)el.innerHTML=chatLines.slice(-6).map(escapeHtml).join('<br>');});
 window.addEventListener('blur',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){joystick={x:0,y:0};sceneRef?.stopMovement(true);}});
-socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);toast('Connection lost. Reconnecting…');});
+socket.on('disconnect',()=>{joystick={x:0,y:0};sceneRef?.stopMovement(true);awaitingStopAck=false;serverMe.x=me.x;serverMe.y=me.y;toast('Connection lost. Reconnecting…');});
 socket.on('connect_error',()=>toast('Unable to connect to the game server.'));
-new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false},scene:[Estate],physics:{default:'arcade'}});
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#15141b',scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},render:{antialias:true,pixelArt:false,roundPixels:true},scene:[Estate],physics:{default:'arcade'}});
 void showSplash();

@@ -13,6 +13,12 @@ const io = new Server(http, { cors: { origin: true, credentials: false }, maxHtt
 const PORT = Number(process.env.PORT) || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const REQUIRE_TELEGRAM_AUTH = process.env.REQUIRE_TELEGRAM_AUTH === 'true';
+// Production remains nondeterministic. The optional seed makes bot-navigation
+// regression runs reproducible so a stuck-NPC failure can be diagnosed exactly.
+let randomState = Number(process.env.VICE_HEIST_TEST_SEED) >>> 0;
+const random = process.env.VICE_HEIST_TEST_SEED
+  ? () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState / 0x1_0000_0000; }
+  : () => Math.random();
 const ROOT = process.cwd();
 const webRoot = existsSync(path.join(ROOT, 'dist/client')) ? path.join(ROOT, 'dist/client') : path.join(ROOT, 'client');
 app.get('/health', (_req, res) => res.json({ ok: true, game: 'Vice Heist', version: '1.0.1' }));
@@ -128,7 +134,7 @@ function start(r: Room): boolean {
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
-  const shuffled = [...list].sort(() => Math.random() - 0.5);
+  const shuffled = [...list].sort(() => random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
   const availableTasks=[...r.tasks];
   list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach(bot=>{
@@ -169,6 +175,24 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   }
   if(previous[goal]===-2)return[];const path:number[]=[];for(let at=goal;at!==-1;at=previous[at])path.push(at);path.reverse();return path;
 }
+function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boolean{
+  const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
+  let best:{x:number;y:number;score:number}|undefined;
+  for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
+    const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
+    // Apply the same axis-separated collision sweep as normal bot movement;
+    // checking X and Y independently from the old position can cut a diagonal
+    // corner and leave an NPC inside a solid mask pixel.
+    let candidateX=bot.x,candidateY=bot.y;
+    if(!blocked(nx,candidateY,18))candidateX=nx;
+    if(!blocked(candidateX,ny,18))candidateY=ny;
+    if(Math.hypot(candidateX-bot.x,candidateY-bot.y)<0.1)continue;
+    const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
+    if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
+  }
+  if(!best)return false;
+  bot.x=best.x;bot.y=best.y;return true;
+}
 function moveBotToward(bot:Player,target:{x:number;y:number},speed:number,dtSeconds:number,key:string,now:number){
   const step=speed*dtSeconds;
   let route=botRoutes.get(bot.id);
@@ -178,24 +202,26 @@ function moveBotToward(bot:Player,target:{x:number;y:number},speed:number,dtSeco
     route={key,goalX:target.x,goalY:target.y,path:findBotPath(bot,target),index:0,plannedAt:now,lastX:bot.x,lastY:bot.y,stuckSince:now};botRoutes.set(bot.id,route);
   }
   if(!route.path.length){
-    // A narrow doorway or temporarily blocked goal can defeat a coarse route.
-    // Try short collision-safe steering angles so an NPC does not freeze.
-    const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
-    let best:{x:number;y:number;score:number}|undefined;
-    for(const offset of [0,0.35,-0.35,0.7,-0.7,1.1,-1.1,1.55,-1.55,Math.PI]){
-      const angle=base+offset,nx=bot.x+Math.cos(angle)*Math.min(step,28),ny=bot.y+Math.sin(angle)*Math.min(step,28);
-      const canX=!blocked(nx,bot.y,18),canY=!blocked(bot.x,ny,18);
-      const candidateX=canX?nx:bot.x,candidateY=canY?ny:bot.y;
-      if(!canX&&!canY)continue;
-      const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
-      if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
-    }
-    if(best){bot.x=best.x;bot.y=best.y;route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
+    // A* can return a geometrically valid coarse path whose first waypoint is
+    // still unreachable by the radius-aware collision sweep. Use local
+    // collision-safe steering rather than leaving the NPC frozen indefinitely.
+    if(steerBotToward(bot,target,step)){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
     return;
   }
   while(route.index<route.path.length-1){const point=cellCenter(route.path[route.index]);if(Math.hypot(point.x-bot.x,point.y-bot.y)>42)break;route.index++;}
   const point=cellCenter(route.path[Math.min(route.index,route.path.length-1)]),dx=point.x-bot.x,dy=point.y-bot.y,d=Math.hypot(dx,dy)||1;
-  const travel=Math.min(step,d),nx=bot.x+dx/d*travel,ny=bot.y+dy/d*travel;if(!blocked(nx,bot.y,18))bot.x=nx;if(!blocked(bot.x,ny,18))bot.y=ny;
+  const travel=Math.min(step,d),nx=bot.x+dx/d*travel,ny=bot.y+dy/d*travel;
+  const beforeX=bot.x,beforeY=bot.y;
+  if(!blocked(nx,bot.y,18))bot.x=nx;
+  if(!blocked(bot.x,ny,18))bot.y=ny;
+  const moved=Math.hypot(bot.x-beforeX,bot.y-beforeY);
+  if(moved<0.5){
+    // Do not keep retrying the same blocked first waypoint for four seconds.
+    // Drop the coarse path and take a safe local step around the obstruction.
+    route.path=[];route.index=0;route.plannedAt=now;
+    if(steerBotToward(bot,target,step)){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
+    return;
+  }
   if(Math.hypot(bot.x-route.lastX,bot.y-route.lastY)>4){route.lastX=bot.x;route.lastY=bot.y;route.stuckSince=now;}
 }
 function hasLineOfSight(a:{x:number;y:number},b:{x:number;y:number}):boolean{
@@ -214,10 +240,10 @@ function fallbackBotLine(bot: Player, text: string, r: Room): string {
   const leading=[...r.suspicions.entries()].sort((a,b)=>b[1]-a[1])[0];
   const suspect=leading&&leading[1]>=2?r.players.get(leading[0]):undefined;
   if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))return `${suspect.name} was close to the last incident. I want to hear their route.`;
-  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(Math.random()*3)];
-  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(Math.random()*3)];
-  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(Math.random()*3)];
-  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(Math.random()*3)];
+  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(random()*3)];
+  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(random()*3)];
+  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(random()*3)];
+  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(random()*3)];
 }
 async function botReply(r: Room, sender: Player, text: string) {
   const bots=[...r.players.values()].filter(p=>p.bot&&p.alive).slice(0,2);
@@ -245,7 +271,7 @@ function botsTick(r: Room, now: number) {
     for(const ghost of [...r.players.values()].filter(p=>p.bot&&!p.alive)){
       let target=ghostWanderTargets.get(ghost.id);
       if(!target||Math.hypot(target.x-ghost.x,target.y-ghost.y)<70||now-target.selectedAt>9_000){
-        const waypoint=TASKS[Math.floor(Math.random()*TASKS.length)];
+        const waypoint=TASKS[Math.floor(random()*TASKS.length)];
         target={x:waypoint.x,y:waypoint.y,selectedAt:now};ghostWanderTargets.set(ghost.id,target);
       }
       moveBotToward(ghost,target,208,dtSeconds,'ghost-wander',now);
@@ -260,7 +286,7 @@ function botsTick(r: Room, now: number) {
         }
         if(task)moveBotToward(bot,task,272,dtSeconds,`task:${task.id}`,now);
         const underLights=!!r.sabotage&&r.sabotage.kind==='lights'&&r.sabotage.endsAt>now;
-        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&Math.random()<(1-Math.pow(1-(underLights ? 0.08 : 0.16),dtSeconds/0.25))){
+        if(task&&Math.hypot(task.x-bot.x,task.y-bot.y)<112&&random()<(1-Math.pow(1-(underLights ? 0.08 : 0.16),dtSeconds/0.25))){
           task.done=true;bot.tasks++;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);notice(r,`${bot.name} completed ${task.label}.`);finish(r);
         }
       }else{
@@ -289,9 +315,9 @@ function botsTick(r: Room, now: number) {
           const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
           moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
         }
-        if((!r.sabotage||r.sabotage.endsAt<=now)&&Math.random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
+        if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
-        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&Math.random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
+        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
           victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
