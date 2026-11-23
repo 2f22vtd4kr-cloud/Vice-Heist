@@ -60,15 +60,15 @@ function blocked(x: number, y: number, radius = 18): boolean {
 function advancePlayer(p: Player, now: number) {
   const dt = clamp((now - p.lastMove) / 1000, 0, 0.06);
   p.lastMove = now;
-  if (!p.alive) { p.moveX = 0; p.moveY = 0; return; }
-  // Movement intent is a short lease. If a release packet is lost, a client
-  // stalls, or a pointer event disappears, the server stops the player safely.
+  // Living players run at full speed; eliminated players remain mobile ghosts
+  // at a reduced speed, with the same authoritative collision sweep.
   if (now - p.movementInputAt > 180) { p.moveX = 0; p.moveY = 0; }
   const magnitude = Math.hypot(p.moveX, p.moveY);
   if (magnitude < 0.08 || dt <= 0) return;
   const speedScale = Math.min(1, magnitude);
-  const dx = p.moveX / magnitude * 370 * dt * speedScale;
-  const dy = p.moveY / magnitude * 370 * dt * speedScale;
+  const speed = p.alive ? 370 : 250;
+  const dx = p.moveX / magnitude * speed * dt * speedScale;
+  const dy = p.moveY / magnitude * speed * dt * speedScale;
   // Substep the authoritative collision sweep so low server tick rates or
   // event-loop stalls cannot tunnel a player through thin walls.
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 6));
@@ -316,8 +316,17 @@ function botsTick(r: Room, now: number) {
           moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
         }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
-        const victim=crew.map(entry=>entry.candidate).find(p=>Math.hypot(p.x-bot.x,p.y-bot.y)<115&&hasLineOfSight(bot,p));
-        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)&&random()<(1-Math.pow(1-.10,dtSeconds/0.25))){
+        const victim=crew.map(entry=>entry.candidate)
+          .filter(p=>{
+            const distance=Math.hypot(p.x-bot.x,p.y-bot.y);
+            // At sprite-overlap distance, wall-ray sampling can report a false
+            // obstruction because the two character centers occupy adjacent
+            // collision-mask pixels. Keep LOS for normal range, but never let
+            // a bot orbit a player it has physically reached.
+            return distance<108&&(hasLineOfSight(bot,p)||distance<48);
+          })
+          .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
+        if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
           victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
@@ -373,7 +382,7 @@ io.on('connection', socket => {
   socket.on('start',()=>{if(!room||!player||room.host!==player.id)return;if(start(room)){notice(room,'The heist is on. Watch your back.');emit(room);}});
   socket.on('move',(input:{x:number;y:number;epoch:number;requestId:number},ack?:(result:{ok:boolean;x?:number;y?:number})=>void)=>{
     const reply=(result:{ok:boolean;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
-    if(!room||!player||room.phase!=='PLAYING'||!player.alive||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)||!Number.isSafeInteger(input?.epoch)||!Number.isSafeInteger(input?.requestId)){reply({ok:false});return;}
+    if(!room||!player||room.phase!=='PLAYING'||!Number.isFinite(input?.x)||!Number.isFinite(input?.y)||!Number.isSafeInteger(input?.epoch)||!Number.isSafeInteger(input?.requestId)){reply({ok:false});return;}
     const now=Date.now();
     // Ignore reordered packets, especially delayed movement from an epoch
     // that ended with a newer zero-vector release.
