@@ -296,7 +296,7 @@ function botsTick(r: Room, now: number) {
           const visible=hasLineOfSight(bot,candidate);
           const previous=botHuntTargets.get(bot.id);
           const repeatPenalty=previous?.targetId===candidate.id&&now-previous.selectedAt<9000?420:0;
-          const playerBias=candidate.bot?120:0;
+          const playerBias=candidate.bot?600:0;
           return {candidate,distance,visible,score:distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+playerBias};
         }).sort((a,b)=>a.score-b.score);
         const previous=botHuntTargets.get(bot.id);
@@ -323,7 +323,11 @@ function botsTick(r: Room, now: number) {
             // obstruction because the two character centers occupy adjacent
             // collision-mask pixels. Keep LOS for normal range, but never let
             // a bot orbit a player it has physically reached.
-            return distance<108&&(hasLineOfSight(bot,p)||distance<48);
+            // Bot navigation already respects the collision mask. Requiring a
+          // second center-to-center ray here causes false negatives when a
+          // character sprite overlaps a wall edge; once in range, contact is
+          // sufficient for the NPC elimination check.
+          return distance<125;
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
