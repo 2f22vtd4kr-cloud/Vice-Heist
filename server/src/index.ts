@@ -175,6 +175,36 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   }
   if(previous[goal]===-2)return[];const path:number[]=[];for(let at=goal;at!==-1;at=previous[at])path.push(at);path.reverse();return path;
 }
+// Find the closest point near an objective that is actually connected to the
+// estate's walkable navigation graph. This avoids moving a task onto the far
+// side of a decorative planter or wall just because its authored coordinate
+// looks visually close to the boat.
+function nearestReachablePoint(from:{x:number;y:number},target:{x:number;y:number},maxDistance=640):{x:number;y:number}|undefined{
+  const start=nearestWalkableCell(cellAt(from.x,from.y));
+  const visited=new Uint8Array(BOT_COLS*BOT_ROWS);
+  const queue=new Int32Array(BOT_COLS*BOT_ROWS);
+  let head=0,tail=0;queue[tail++]=start;visited[start]=1;
+  let best:number|undefined,bestDistance=maxDistance;
+  while(head<tail){
+    const current=queue[head++],point=cellCenter(current),distance=Math.hypot(point.x-target.x,point.y-target.y);
+    if(distance<bestDistance){best=current;bestDistance=distance;}
+    const cx=current%BOT_COLS,cy=Math.floor(current/BOT_COLS);
+    for(const[dx,dy]of botNeighbors){
+      const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
+      const next=y*BOT_COLS+x;if(visited[next])continue;
+      const candidate=cellCenter(next);if(blocked(candidate.x,candidate.y,18))continue;
+      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
+      visited[next]=1;queue[tail++]=next;
+    }
+  }
+  return best===undefined?undefined:cellCenter(best);
+}
+const dockObjective=TASKS.find(task=>task.id==='dock');
+if(dockObjective){
+  const reachable=nearestReachablePoint({x:2800,y:2000},{x:dockObjective.x,y:dockObjective.y});
+  if(reachable){dockObjective.x=reachable.x;dockObjective.y=reachable.y;}
+  else console.warn('[Vice Heist] No reachable dock task point found within 640 world units of the authored boat target.');
+}
 function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boolean{
   const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
   let best:{x:number;y:number;score:number}|undefined;
