@@ -488,7 +488,7 @@ io.on('connection', socket => {
     const task=room.tasks.find(t=>t.id===taskId&&!t.done),started=room.taskSwipeStartedAt.get(key);
     if(task?.id!=='helipad'||started===undefined||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Start the card swipe at the reader.'});return;}
     const duration=Date.now()-started;room.taskSwipeStartedAt.delete(key);
-    if(duration<250||duration>1200){room.taskSwipeDuration.delete(key);respond({ok:false,error:'Swipe speed was outside the reader window.'});return;}
+    if(duration<180||duration>1500){room.taskSwipeDuration.delete(key);respond({ok:false,error:'Swipe speed was outside the reader window.'});return;}
     room.taskSwipeDuration.set(key,duration);respond({ok:true});
   });
   socket.on('task:hold-start',(input?:{taskId?:unknown})=>{
@@ -512,7 +512,7 @@ io.on('connection', socket => {
       server:()=>answer==='blue,gold,red,teal',
       helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=200&&(room!.taskSwipeDuration.get(key)||0)<=1500,
       generator:()=>answer===challenge,
-      dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*19&&Date.now()-holdStarted<=10_000,
+      dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*17&&Date.now()-holdStarted<=10_000,
       bar:()=>answer===challenge,
       pool:()=>numeric>=Number(challenge)-3&&numeric<=Number(challenge)+3,
       garage:()=>answer==='complete'&&elapsed>=Number(challenge)-100&&elapsed<=Number(challenge)+12_000,
