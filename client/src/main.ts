@@ -656,12 +656,28 @@ class Estate extends Phaser.Scene {
         const key=`map${index+1}`;
         if(this.textures.exists(key)){
           const col=index%4,row=Math.floor(index/4);
-          // A 2-world-pixel overlap prevents linear-filtering/camera rounding
-          // from exposing hairline seams between adjacent map sectors.
-          // Extend each opaque sector 8 world pixels beneath its neighbours.
-          // This is a real overlap (not a one-pixel rescale) so subpixel camera
-          // sampling cannot reveal the transparent/filtering boundary.
-          const tile=this.add.image(col*2048+1024,row*2048+1024,key).setDepth(0).setDisplaySize(2064,2064);
+          // Add an 8px duplicated-edge gutter around each sector. The visible
+          // 2048px source remains exactly 2048 world units; only the gutter
+          // overlaps neighbouring sectors. Scaling the source itself caused
+          // collision-mask and artwork outlines to drift apart.
+          const paddedKey=key+'-gutter';
+          if(!this.textures.exists(paddedKey)){
+            const source=this.textures.get(key).getSourceImage() as CanvasImageSource;
+            const canvas=document.createElement('canvas');canvas.width=2064;canvas.height=2064;
+            const ctx=canvas.getContext('2d');
+            if(!ctx)throw new Error('Unable to prepare map sector edge gutter.');
+            ctx.drawImage(source,0,0,2048,2048,8,8,2048,2048);
+            ctx.drawImage(source,0,0,2048,1,8,0,2048,8);
+            ctx.drawImage(source,0,2047,2048,1,8,2056,2048,8);
+            ctx.drawImage(source,0,0,1,2048,0,8,8,2048);
+            ctx.drawImage(source,2047,0,1,2048,2056,8,8,2048);
+            ctx.drawImage(source,0,0,1,1,0,0,8,8);
+            ctx.drawImage(source,2047,0,1,1,2056,0,8,8);
+            ctx.drawImage(source,0,2047,1,1,0,2056,8,8);
+            ctx.drawImage(source,2047,2047,1,1,2056,2056,8,8);
+            this.textures.addCanvas(paddedKey,canvas);
+          }
+          const tile=this.add.image(col*2048+1024,row*2048+1024,paddedKey).setDepth(0).setDisplaySize(2064,2064);
           this.mapTiles.set(index,tile);
         }else{
           console.error('[Vice Heist map streaming] Sector texture unavailable:',key);
@@ -692,7 +708,7 @@ class Estate extends Phaser.Scene {
     for(const [index,tile] of this.mapTiles){
       if(!desired.has(index)){
         tile.destroy();this.mapTiles.delete(index);
-        this.textures.remove(`map${index+1}`);
+        this.textures.remove(`map${index+1}-gutter`);this.textures.remove(`map${index+1}`);
       }
     }
     this.pumpMapTiles();
