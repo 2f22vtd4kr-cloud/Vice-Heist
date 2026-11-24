@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type { Snapshot, PublicPlayer, Task } from '../../shared/types';
 import './style.css';
+import { EstateAudio } from './audio';
 import { VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
 
 declare global {
@@ -22,6 +23,8 @@ let currentMeetingEnds = 0;
 let roomCode = sessionStorage.getItem('vh-room-code') || '';
 let groqKey = '';
 let muted = false;
+const gameAudio = new EstateAudio();
+let leftHanded = localStorage.getItem('vh-left-handed') === 'true';
 let lastFootstep = 0;
 let joystick = { x: 0, y: 0 };
 let me = { x: 3000, y: 2070 };
@@ -268,6 +271,7 @@ async function showSplash() {
 }
 
 function tone(frequency = 440, duration = 0.08) {
+  gameAudio.unlock();
   if (muted) return;
   try { audio ??= new AudioContext(); if (audio.state === 'suspended') void audio.resume(); const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.value=frequency;gain.gain.setValueAtTime(0.045,audio.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+duration);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration); } catch { /* audio is an enhancement */ }
 }
@@ -354,6 +358,7 @@ function hud() {
   currentPhase='PLAYING';
   show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><div class="hud-tools"><button id="map-toggle" aria-label="Open estate map"><img src="${artUrl('btn_map_toggle')}" alt=""></button><button id="settings-toggle" aria-label="Open settings"><img src="${artUrl('btn_settings')}" alt=""></button><button id="chat-toggle" aria-label="Open meeting chat"><img src="${artUrl('btn_chat_toggle')}" alt=""></button><button id="sound" aria-label="Toggle sound">♫</button></div></div><div class="objective" id="objective"><span class="objective-label">Complete the estate jobs. Find the Mole.</span><div class="objective-meter" aria-hidden="true"><i id="objective-fill"></i></div></div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div class="actions"><button id="use" aria-label="Use"><img class="action-art" src="${artUrl('btn_use_dim')}" alt=""><span>USE</span></button><button id="report" aria-label="Report"><img class="action-art" src="${artUrl('btn_report_dim')}" alt=""><span>REPORT</span></button><button id="emergency" aria-label="Emergency meeting"><img class="action-art" src="${artUrl('btn_emergency_call')}" alt=""><span>EMERGENCY</span></button><button id="kill" class="danger" aria-label="Eliminate"><img class="action-art" src="${artUrl('btn_kill_dim')}" alt=""><span>ELIMINATE</span></button><button id="sabotage" class="danger" aria-label="Sabotage"><img class="action-art" src="${artUrl('btn_sabotage_active')}" alt=""><span>LIGHTS</span></button></div><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
   wireControls(); updateHud(latest);
+  document.querySelector('.controls')?.classList.toggle('left-handed',leftHanded);
 }
 function wireControls() {
   const stick=document.querySelector<HTMLElement>('#stick')!,knob=document.querySelector<HTMLElement>('#knob')!;
@@ -394,7 +399,7 @@ function wireControls() {
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
   document.querySelector('#kill')!.addEventListener('click',()=>{const p=nearestTarget();if(p){socket.emit('kill',p.id);tone(160);}else toast('No target in elimination range.');haptic();});
   document.querySelector('#sabotage')!.addEventListener('click',()=>{socket.emit('sabotage','lights');tone(220);haptic();});
-  document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
+  document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;gameAudio.setMuted(muted);document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
   document.querySelector('#map-toggle')!.addEventListener('click',()=>openMapOverlay());
   document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
   document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
@@ -408,10 +413,13 @@ function openMapOverlay(){
 }
 function openSettingsOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><small>Right-hand joystick</small></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><small><img src="${artUrl('camera_prop_idle')}" alt=""><img src="${artUrl('camera_prop_live')}" alt=""> Not wired to server state</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small><img src="${artUrl('vent_open')}" alt=""><img src="${artUrl('vent_arrow')}" alt=""><img src="${artUrl('btn_vent_active')}" alt=""> Visuals ready · traversal not enabled</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small><img src="${artUrl('door_horizontal_shut')}" alt=""> Server sabotage exists; door collision gates are not wired</small></div><div class="asset-pin-row"><img src="${artUrl('sabotage_pin_comms')}" alt=""><img src="${artUrl('sabotage_pin_reactor')}" alt=""><img src="${artUrl('sabotage_pin_o2')}" alt=""></div><button class="primary" id="settings-done">DONE</button></div>`;
+  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><small>Camera network is not yet connected to live server state.</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Vent artwork is present; traversal and collision routing are not yet implemented.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Door sabotage visuals exist; physical door gates are not yet implemented.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
   m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
-  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
+  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;gameAudio.setMuted(muted);const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
+  m.querySelector<HTMLInputElement>('#vh-sfx-volume')?.addEventListener('input',e=>gameAudio.setEffectsVolume(Number((e.target as HTMLInputElement).value)/100));
+  m.querySelector<HTMLInputElement>('#vh-ambience-volume')?.addEventListener('input',e=>gameAudio.setAmbienceVolume(Number((e.target as HTMLInputElement).value)/100));
+  m.querySelector('#vh-handedness')?.addEventListener('click',()=>{leftHanded=!leftHanded;localStorage.setItem('vh-left-handed',String(leftHanded));document.querySelector('.controls')?.classList.toggle('left-handed',leftHanded);const b=m.querySelector('#vh-handedness');if(b)b.textContent=leftHanded?'Left-hand joystick':'Right-hand joystick';});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
 function nearestBody(): PublicPlayer | undefined { return latest?.players.filter(p=>!p.alive&&!p.reported).map(p=>({...p,d:Math.hypot(p.corpseX-me.x,p.corpseY-me.y)})).filter(p=>p.d<180).sort((a,b)=>a.d-b.d)[0]; }
@@ -506,6 +514,18 @@ function updateHud(s: Snapshot | null) {
 }
 function renderState(s: Snapshot) {
   hideMenuFrame();
+  const previousSnapshot=latest;
+  if(previousSnapshot){
+    const beforeLocal=previousSnapshot.players.find(p=>p.id===myId),afterLocal=s.players.find(p=>p.id===myId);
+    if(previousSnapshot.phase!=='PLAYING'&&s.phase==='PLAYING')gameAudio.play('roundStart');
+    if(beforeLocal?.alive&&!afterLocal?.alive)gameAudio.play('death');
+    if(s.selfRole==='MOLE'&&previousSnapshot.players.some(p=>p.id!==myId&&p.alive)&&s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return p.id!==myId&&old?.alive&&!p.alive;}))gameAudio.play('kill');
+    if(s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return old&&!old.reported&&p.reported;}))gameAudio.play('bodyFound');
+    if(s.tasks.some(t=>{const old=previousSnapshot.tasks.find(q=>q.id===t.id);return old&&!old.done&&t.done;}))gameAudio.play('task');
+    if(previousSnapshot.phase!=='MEETING'&&s.phase==='MEETING')gameAudio.play('meeting');
+    if(previousSnapshot.phase!=='GAME_OVER'&&s.phase==='GAME_OVER')gameAudio.play(s.winner==='CREW'?'crewWin':'moleWin');
+    if((!previousSnapshot.sabotage||previousSnapshot.sabotage.endsAt<=Date.now())&&s.sabotage&&s.sabotage.endsAt>Date.now())gameAudio.play('sabotage');
+  }
   const prev=currentPhase;latest=s;const local=s.players.find(p=>p.id===myId);
   if(local){
     // Treat the first snapshot for each player ID as initialization, not a correction.
@@ -535,6 +555,7 @@ function renderState(s: Snapshot) {
 
 class Estate extends Phaser.Scene {
   private actors = new Map<string, Phaser.GameObjects.Sprite>();
+  private nameLabels = new Map<string, Phaser.GameObjects.Text>();
   private remoteSamples = new Map<string,{x:number;y:number;time:number}[]>();
   private keys!: any;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -751,17 +772,19 @@ class Estate extends Phaser.Scene {
       if(!a){
         a=this.add.sprite(local.x,local.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
         this.actors.set(local.id,a);
+        this.nameLabels.set(local.id,this.add.text(local.x,local.y-48,local.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));
         this.cameras.main.startFollow(a,true,.30,.30);
       }
       a.setAlpha(local.alive?1:.92).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
       if(!local.alive&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);
     }
-    for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);}if(a){
+    for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);this.nameLabels.set(p.id,this.add.text(p.x,p.y-48,p.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>8)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
       a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
-    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.remoteSamples.delete(id);}
+    for(const [id,a] of this.actors){const label=this.nameLabels.get(id);if(label){label.setText(s.players.find(p=>p.id===id)?.name||'');label.setPosition(a.x,a.y-48);}}
+    for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.nameLabels.get(id)?.destroy();this.nameLabels.delete(id);this.remoteSamples.delete(id);}
   }
   private setupVision(){
     const canvas=document.createElement('canvas');canvas.className='vision-layer';canvas.setAttribute('aria-hidden','true');
@@ -835,12 +858,14 @@ class Estate extends Phaser.Scene {
         if(bracketed){const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
       }
       actor.setPosition(x,y);
+      this.nameLabels.get(id)?.setPosition(x,y-48);
       const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;
       const player=latest?.players.find(p=>p.id===id);
       if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}
       else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();return;}
+    gameAudio.updateWorld(me.x,me.y);
     const local=latest.players.find(p=>p.id===myId);if(!local){joystick={x:0,y:0};this.stopMovement();return;}
     if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
@@ -850,6 +875,9 @@ class Estate extends Phaser.Scene {
     else if(magnitude>1){x/=magnitude;y/=magnitude;magnitude=1;}
     const actor=this.actors.get(myId);
     if(magnitude>0){
+      gameAudio.updateWorld(me.x,me.y);
+      const surface: 'carpet'|'wood'|'tile'|'metal' = me.y>2500&&me.x<2048?'metal':me.y>2500&&me.x<4096?'metal':me.x>2048&&me.x<4096&&me.y<2048?'wood':me.x>4096&&me.y<2048?'tile':'tile';
+      gameAudio.step(time,surface);
       if(!this.moving){this.moving=true;this.moveSequence++;}
       // Same speed, analog scaling and collision sweep as server authority.
       const dt=Phaser.Math.Clamp(delta,0,60)/1000,speed=local.alive?370:250;
@@ -883,7 +911,7 @@ class Estate extends Phaser.Scene {
     for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
   }
-  shutdown(){this.stopMovement();this.game.events.off(Phaser.Core.Events.POST_RENDER,this.visionPostRender);this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.nameLabels.forEach(label=>label.destroy());this.nameLabels.clear();this.game.events.off(Phaser.Core.Events.POST_RENDER,this.visionPostRender);this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
