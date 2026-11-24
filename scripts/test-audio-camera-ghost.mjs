@@ -17,6 +17,7 @@ assert.match(client,/cameraUse\.style\.display=atCctvConsole\(local\)\?'grid':'n
 assert.doesNotMatch(client,/#camera-toggle/,'there must be no always-available top HUD camera shortcut');
 assert.match(client,/cameraConsoleMarker/,'estate blueprint must show the CCTV console location');
 assert.match(audio,/this\.ambienceVolume\*attenuation\*\.48/,'ambient zone mix must be audible beyond the nearest-only zone');
+assert.doesNotMatch(client,/autoStartTimer\s*=\s*window\.setTimeout\(enterMenu/,'splash must wait for a real tap so Safari can unlock background audio');
 assert.match(audio,/\.16\+\.84\*Math\.pow/,'spatial music must retain a quiet audible estate-wide bed');
 assert.match(audio,/Short layered impacts replace the synthetic pitched/,'footsteps must use layered impacts rather than pitched slaps');
 console.log('Audio, CCTV, ghost and NPC targeting regression assertions passed.');
