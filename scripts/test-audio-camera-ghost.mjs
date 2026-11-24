@@ -7,6 +7,7 @@ const server=readFileSync('server/src/index.ts','utf8');
 
 assert.match(server,/const humanBonus=candidate\.bot\?0:-115/,'Mole target scoring must consider NPC Crew as valid targets');
 assert.match(server,/const pool=crew\.slice\(0,Math\.min\(3,crew\.length\)\)/,'Mole target selection must consider multiple Crew candidates');
+assert.match(server,/otherMoleFocus/,'Mole NPCs should distribute pressure instead of dogpiling one Crew target');
 assert.doesNotMatch(server,/const humanTarget=crew\.find\(entry=>!entry\.candidate\.bot\)/,'Mole NPC must not use a human-only hunt target');
 assert.match(client,/if\(local\.alive\)gameAudio\.step\(time,surface\)/,'dead/ghost movement must not emit footsteps');
 assert.match(client,/latest\?\.players\.find\(player=>player\.id===id\)\?\.y\?\?actor\.y-9/,'death collapse must restore the ghost sprite to its authoritative Y anchor');
