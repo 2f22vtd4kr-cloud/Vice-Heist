@@ -267,13 +267,27 @@ function finish(r: Room) {
 function beginMeeting(r: Room, reason: string) { r.phase='MEETING';r.meeting={reason,votes:{},endsAt:Date.now()+30_000};notice(r,reason);emit(r);}
 function fallbackBotLine(bot: Player, text: string, r: Room): string {
   const msg=text.toLowerCase();
+  const pick=(lines:string[])=>lines[Math.floor(random()*lines.length)];
   const leading=[...r.suspicions.entries()].sort((a,b)=>b[1]-a[1])[0];
   const suspect=leading&&leading[1]>=2?r.players.get(leading[0]):undefined;
-  if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))return `${suspect.name} was close to the last incident. I want to hear their route.`;
-  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(random()*3)];
-  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(random()*3)];
-  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(random()*3)];
-  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(random()*3)];
+  const directMention=msg.includes(bot.name.toLowerCase());
+  if(directMention&&/suspect|mole|impostor|vote|kill|where|last seen/.test(msg))
+    return pick([`I’m here. What room and time are you asking about?`,`Don't pin it on me without a timeline. Who actually saw that?`,`I can explain my route, but give me a specific sighting first.`]);
+  if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))
+    return pick([`${suspect.name} was close to the last incident. I want to hear their route.`,`The last report puts ${suspect.name} near the area. Does anyone have a second sighting?`,`I’m watching ${suspect.name}, but proximity alone isn't proof.`]);
+  if(/camera|security|feed/.test(msg))
+    return pick(['The camera room might help with timing, but it won’t show every corridor.','Did anyone check the security feed before the lights went out?','A camera sighting needs a time stamp, not just a colour.']);
+  if(/boat|dock|fuel|engine|water/.test(msg))
+    return pick(['The dock is a long walk from the main rooms. Who was actually down there?','If someone used the boat route, we should compare who crossed the garage.','I haven't got a clean sighting near the dock yet.']);
+  if(/lights|sabotage|dark|power/.test(msg))
+    return pick(['The outage gives someone cover. Stick to who was together just before it.','Power is back, but we still need to account for the corridor traffic.','Who was nearest the generator when the lights dropped?']);
+  if(/task|job|objective|where|location|last seen|saw/.test(msg))
+    return pick(['I was checking an objective. Did anyone cross the hall while I was there?','I saw movement near the main corridor, but I couldn't make out who it was.','Which room are we comparing? The route matters more than the colour.']);
+  if(/suspect|who|vote|mole|impostor/.test(msg))
+    return pick(['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.']);
+  if(/kill|body|dead|report/.test(msg))
+    return pick(['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?']);
+  return pick(['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.']);
 }
 async function botReply(r: Room, sender: Player, text: string) {
   const bots=[...r.players.values()].filter(p=>p.bot&&p.alive).slice(0,2);
