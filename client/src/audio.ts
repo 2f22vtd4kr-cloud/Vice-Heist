@@ -76,7 +76,7 @@ export class EstateAudio {
   private loadMusicTrack(){
     if(!this.musicElement||!this.musicStarted)return;
     this.musicElement.src=this.musicTracks[this.musicIndex];this.musicElement.load();
-    const attempt=this.musicElement.play();if(attempt&&typeof attempt.catch==='function')attempt.catch(()=>{if(!this.musicElement?.error)this.musicStarted=false;});
+    const attempt=this.musicElement.play();if(attempt&&typeof attempt.catch==='function')attempt.catch(()=>{});
   }
   private advancePlaylist(failed:boolean){
     if(!this.musicStarted)return;
@@ -149,6 +149,7 @@ export class EstateAudio {
     this.lastZone=chosen.name;
   }
   dispose(){
+    this.musicStarted=false;this.musicElement?.pause();this.musicElement?.removeAttribute('src');this.musicElement?.load();this.musicElement=undefined;this.musicGain=undefined;this.musicFilter=undefined;
     for(const loop of this.loops.values()){try{loop.source.stop();loop.osc?.stop();}catch{/* already stopped */}}
     this.loops.clear();void this.context?.close();this.context=undefined;this.noise=undefined;
   }
