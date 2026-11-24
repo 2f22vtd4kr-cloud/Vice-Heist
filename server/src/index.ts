@@ -34,7 +34,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; botChatCooldowns: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number; weapon?: Weapon };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; botChatCooldowns: Map<string, number>; botSocialCooldowns: Map<string, number>; botSocialPauseUntil: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number; weapon?: Weapon };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -166,7 +166,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map(),ventCooldownUntil:new Map(),botChatCooldowns:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map(),ventCooldownUntil:new Map(),botChatCooldowns:new Map(),botSocialCooldowns:new Map(),botSocialPauseUntil:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -178,7 +178,7 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
-  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
+  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();r.botSocialCooldowns.clear();r.botSocialPauseUntil.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';p.weapon=undefined;});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => random() - 0.5);
@@ -399,6 +399,23 @@ function botsTick(r: Room, now: number) {
             break;
           }
           continue;
+        }
+        // Crew NPCs perform brief, independent buddy check-ins when they
+        // naturally cross paths. Both bots pause together, then resume their
+        // own task routes; cooldowns prevent repetitive clustering.
+        if((r.botSocialPauseUntil.get(bot.id)||0)>now)continue;
+        if((r.botSocialCooldowns.get(bot.id)||0)<=now){
+          const buddy=alive.filter(other=>other.bot&&other.id!==bot.id&&other.role==='CREW'&&(r.botSocialCooldowns.get(other.id)||0)<=now)
+            .map(other=>({player:other,distance:Math.hypot(other.x-bot.x,other.y-bot.y)}))
+            .filter(entry=>entry.distance<240)
+            .sort((a,b)=>a.distance-b.distance)[0]?.player;
+          if(buddy){
+            r.botSocialCooldowns.set(bot.id,now+20_000);r.botSocialCooldowns.set(buddy.id,now+20_000);
+            r.botSocialPauseUntil.set(bot.id,now+1_200);r.botSocialPauseUntil.set(buddy.id,now+1_200);
+            notice(r,bot.name+' checked in with '+buddy.name+'.');
+            continue;
+          }
+          r.botSocialCooldowns.set(bot.id,now+4_000);
         }
         let task=r.tasks.find(t=>!t.done&&t.id===botTaskAssignments.get(bot.id));
         if(!task){
