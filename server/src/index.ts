@@ -30,7 +30,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -93,6 +93,20 @@ const TASKS: Omit<Task, 'done'>[] = [
   { id:'dock', label:'Fuel speedboat', x:7172, y:2401, zone:7 },
 ];
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
+function shuffled<T>(values:T[]):T[]{const copy=[...values];for(let i=copy.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[copy[i],copy[j]]=[copy[j],copy[i]];}return copy;}
+function createTaskChallenge(id:string):string{
+  switch(id){
+    case 'vault':return String(1000+Math.floor(random()*9000));
+    case 'server':return shuffled(['red','blue','gold','teal']).join(',');
+    case 'generator':return (1+Math.floor(random()*14)).toString(2).padStart(4,'0');
+    case 'dock':return String(82+Math.floor(random()*19));
+    case 'bar':return shuffled(['lime','ice','rum']).join(',');
+    case 'pool':return String(68+Math.floor(random()*9));
+    case 'garage':return String(1600+Math.floor(random()*1001));
+    default:return 'steady';
+  }
+}
+function createTasks():Task[]{return TASKS.map(task=>({...task,done:false,challenge:createTaskChallenge(task.id)}));}
 function roomCode(): string { let s = ''; do { s = randomBytes(4).toString('hex').slice(0,5).toUpperCase(); } while (rooms.has(s)); return s; }
 function validTelegram(raw?: string) {
   if (!raw || !BOT_TOKEN) return null;
@@ -119,7 +133,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:TASKS.map(t=>({...t,done:false})),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -131,7 +145,7 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
-  r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
+  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => random() - 0.5);
@@ -453,26 +467,58 @@ io.on('connection', socket => {
     player.moveX=dx;player.moveY=dy;player.movementInputAt=now;
     reply({ok:true,x:player.x,y:player.y});
   });
+  socket.on('task:begin',(input?:{taskId?:unknown},ack?:(result:{ok:boolean;error?:string})=>void)=>{
+    const respond=(result:{ok:boolean;error?:string})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW'){respond({ok:false,error:'Tasks are unavailable.'});return;}
+    const taskId=typeof input?.taskId==='string'?input.taskId:'';
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done);
+    if(!task||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Move closer to an unfinished task.'});return;}
+    const key=player.id+':'+taskId;room.taskStartedAt.set(key,Date.now());room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);respond({ok:true});
+  });
+  socket.on('task:swipe-start',(input?:{taskId?:unknown})=>{
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW')return;
+    const taskId=typeof input?.taskId==='string'?input.taskId:'',key=player.id+':'+taskId;
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done);
+    if(task?.id==='helipad'&&room.taskStartedAt.has(key)&&Math.hypot(task.x-player.x,task.y-player.y)<150)room.taskSwipeStartedAt.set(key,Date.now());
+  });
+  socket.on('task:swipe-end',(input?:{taskId?:unknown},ack?:(result:{ok:boolean;error?:string})=>void)=>{
+    const respond=(result:{ok:boolean;error?:string})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW'){respond({ok:false,error:'Swipe unavailable.'});return;}
+    const taskId=typeof input?.taskId==='string'?input.taskId:'',key=player.id+':'+taskId;
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done),started=room.taskSwipeStartedAt.get(key);
+    if(task?.id!=='helipad'||started===undefined||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Start the card swipe at the reader.'});return;}
+    const duration=Date.now()-started;room.taskSwipeStartedAt.delete(key);
+    if(duration<180||duration>1500){room.taskSwipeDuration.delete(key);respond({ok:false,error:'Swipe speed was outside the reader window.'});return;}
+    room.taskSwipeDuration.set(key,duration);respond({ok:true});
+  });
+  socket.on('task:hold-start',(input?:{taskId?:unknown})=>{
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW')return;
+    const taskId=typeof input?.taskId==='string'?input.taskId:'';
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done),key=player.id+':'+taskId;
+    if(task?.id==='dock'&&room.taskStartedAt.has(key)&&Math.hypot(task.x-player.x,task.y-player.y)<150)room.taskHoldStartedAt.set(key,Date.now());
+  });
   socket.on('use',(input?:{taskId?:unknown;answer?:unknown},ack?:(result:{ok:boolean;error?:string})=>void)=>{
     const respond=(result:{ok:boolean;error?:string})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW'){respond({ok:false,error:'This operation is unavailable.'});return;}
     const taskId=typeof input?.taskId==='string'?input.taskId:'';
     const task=room.tasks.find(t=>t.id===taskId&&!t.done);
     if(!task||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Move closer to an unfinished task.'});return;}
-    const answer=input?.answer;
-    const numeric=typeof answer==='number'&&Number.isFinite(answer)?answer:NaN;
+    const key=player.id+':'+taskId,startedAt=room.taskStartedAt.get(key),elapsed=startedAt===undefined?0:Date.now()-startedAt;
+    if(startedAt===undefined){respond({ok:false,error:'Start the operation at the task terminal first.'});return;}
+    const answer=input?.answer,numeric=typeof answer==='number'&&Number.isFinite(answer)?answer:NaN;
+    const challenge=task.challenge||'',holdStarted=room.taskHoldStartedAt.get(key);
     const valid:Record<string,()=>boolean>={
-      vault:()=>answer==='2741',
+      vault:()=>answer===challenge,
       server:()=>answer==='blue,gold,red,teal',
-      helipad:()=>numeric>=250&&numeric<=1500,
-      generator:()=>answer==='1011',
-      dock:()=>numeric>=2000&&numeric<=10000,
-      bar:()=>answer==='lime,ice,rum',
-      pool:()=>numeric>=68&&numeric<=76,
-      garage:()=>numeric>=1600&&numeric<=10000,
+      helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=200&&(room!.taskSwipeDuration.get(key)||0)<=1500,
+      generator:()=>answer===challenge,
+      dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*17&&Date.now()-holdStarted<=10_000,
+      bar:()=>answer===challenge,
+      pool:()=>numeric>=Number(challenge)-3&&numeric<=Number(challenge)+3,
+      garage:()=>answer==='complete'&&elapsed>=Number(challenge)-100&&elapsed<=Number(challenge)+12_000,
     };
-    if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass verification. Try the puzzle again.'});return;}
-    task.done=true;player.tasks++;notice(room,`${player.name} completed ${task.label}.`);finish(room);emit(room);respond({ok:true});
+    if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass server verification. Try again.'});return;}
+    task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
   });
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});

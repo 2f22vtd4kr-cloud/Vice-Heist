@@ -30,3 +30,12 @@
 ## Verification
 - This branch requires CI typecheck/build and existing server regressions before merge.
 - No physical iPhone or Replit Preview validation has been performed.
+
+
+## Follow-up implementation — 2026-11-24
+
+- Added per-round randomized task challenge data and server-side answer validation for all eight tasks.
+- Added proximity-checked task-start sessions; invalid, remote, dead-player and Mole task attempts are rejected.
+- Added server-measured swipe duration and fuel-hold duration checks, plus elapsed-time validation for the garage scan.
+- Existing fixed task patterns and client-asserted hold/scan values have been removed from the active task flow.
+- Still outstanding: real recorded environmental ambience, weapon-specific attack animation selection, vent traversal, physical door collision gates, deeper NPC social schedules/deception, and physical iPhone/Replit/Telegram validation. The supplied music binaries still need to be added to the repository; this connector cannot write uploaded binary bytes to GitHub directly.
