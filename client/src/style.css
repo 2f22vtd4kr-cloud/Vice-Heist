@@ -710,3 +710,21 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .settings-panel { width:min(94vw,440px); padding:16px; }
   .vh-audio-setting { margin:6px 0 10px; }
 }
+
+/* Sector-accurate blueprint: four columns by two rows, matching the collision atlas. */
+.estate-blueprint { position:relative; width:100%; aspect-ratio:2/1; overflow:hidden; border:1px solid #63c7dc88; background:#071b2a; box-shadow:inset 0 0 0 2px #8fe7f522; }
+.blueprint-grid { position:absolute; inset:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); }
+.blueprint-sector { position:relative; min-width:0; min-height:0; overflow:hidden; border:1px solid #68d4e766; background:#092238; }
+.blueprint-sector img { width:100%; height:100%; display:block; object-fit:cover; opacity:.44; filter:grayscale(1) sepia(1) hue-rotate(145deg) saturate(2.4) contrast(1.15); }
+.blueprint-sector span { position:absolute; left:3px; right:3px; bottom:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#b9f4ff; font-size:clamp(5px,1.5vw,9px); font-weight:800; text-shadow:0 1px 3px #00111d; }
+.blueprint-markers { position:absolute; inset:0; pointer-events:none; }
+.blueprint-player,.blueprint-task { position:absolute; display:block; border-radius:50%; transform:translate(-50%,-50%); }
+.blueprint-player { width:8px; height:8px; background:#f5c078; border:1px solid #fff; box-shadow:0 0 0 2px #f5c07855; z-index:3; }
+.blueprint-player.self { width:12px; height:12px; background:#fff; box-shadow:0 0 0 3px #f5b36d; }
+.blueprint-player.down { opacity:.35; }
+.blueprint-task { width:6px; height:6px; background:#55d6d0; border:1px solid #e5ffff; z-index:2; }
+.blueprint-task.done { opacity:.22; }
+.blueprint-legend { display:flex; gap:18px; padding:8px 2px; color:#c8eaf0; font-size:10px; }
+.blueprint-legend span { display:flex; align-items:center; gap:6px; }
+.blueprint-legend i { position:static; transform:none; flex:0 0 auto; }
+.map-panel { width:min(94vw,620px); }
