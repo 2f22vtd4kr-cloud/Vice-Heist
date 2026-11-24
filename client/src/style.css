@@ -697,3 +697,16 @@ input,textarea{user-select:text;-webkit-user-select:text}
   width:48px !important; height:48px !important; min-width:48px !important; min-height:48px !important;
   border-radius:50% !important;
 }
+
+/* Wired field settings and handedness layout. */
+.controls.left-handed .stick { order: 1; margin-left: 0; margin-right: 0; }
+.controls.left-handed .actions { order: 0; }
+.vh-audio-setting { display:flex; flex-direction:column; gap:8px; margin:10px 0 16px; color:#d7cfd0; font-size:13px; }
+.vh-audio-setting input { width:100%; accent-color:#e5a45f; }
+.settings-panel { display:flex; flex-direction:column; gap:12px; max-height:min(84dvh,780px); overflow-y:auto; overscroll-behavior:contain; }
+.settings-row { min-width:0; }
+.settings-row small { overflow-wrap:anywhere; line-height:1.45; }
+@media(max-width:420px) {
+  .settings-panel { width:min(94vw,440px); padding:16px; }
+  .vh-audio-setting { margin:6px 0 10px; }
+}
