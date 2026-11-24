@@ -526,7 +526,7 @@ io.on('connection', socket => {
     const challenge=task.challenge||'',holdStarted=room.taskHoldStartedAt.get(key);
     const valid:Record<string,()=>boolean>={
       vault:()=>answer===challenge,
-      server:()=>answer==='blue,gold,red,teal',
+      server:()=>answer===challenge,
       helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=200&&(room!.taskSwipeDuration.get(key)||0)<=1500,
       generator:()=>answer===challenge,
       dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*17&&Date.now()-holdStarted<=10_000,
