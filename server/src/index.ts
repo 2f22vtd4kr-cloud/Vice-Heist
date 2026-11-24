@@ -301,9 +301,12 @@ function botsTick(r: Room, now: number) {
         }).sort((a,b)=>a.score-b.score);
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
+        const humanTarget=crew.find(entry=>!entry.candidate.bot);
         const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1150);
         const retain=!!current&&!!previous&&now-previous.selectedAt<5500&&current.distance<1350;
-        const selected=retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]);
+        // In a player-vs-NPC match, a killer bot must not spend its hunt
+        // repeatedly changing between other NPCs while the human is alive.
+        const selected=humanTarget|| (retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]));
         const target=selected?.candidate;
         if(target){
           if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
