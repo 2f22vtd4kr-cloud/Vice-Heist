@@ -351,7 +351,7 @@ function botsTick(r: Room, now: number) {
         // range, with a low per-tick decision chance; an active short hunt is
         // retained briefly to avoid visibly twitching between targets.
         const retain=!!current&&!!previous&&now-previous.selectedAt<5_000&&current.distance<1_200;
-        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&now-r.roundStartedAt>8_000&&(random()<0.18||humanTarget.distance<360);
+        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&random()<0.04;
         if(commit&&humanTarget){
           if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
           moveBotToward(bot,humanTarget.candidate,310,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
