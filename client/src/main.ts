@@ -467,6 +467,7 @@ function openSettingsOverlay(){
   const sfxSlider=m.querySelector<HTMLInputElement>('#vh-sfx-volume');if(sfxSlider)sfxSlider.value=localStorage.getItem('vh-effects-volume')||'80';
   const ambienceSlider=m.querySelector<HTMLInputElement>('#vh-ambience-volume');if(ambienceSlider)ambienceSlider.value=localStorage.getItem('vh-ambience-volume')||'32';
   const musicSlider=m.querySelector<HTMLInputElement>('#vh-music-volume');if(musicSlider)musicSlider.value=localStorage.getItem('vh-music-volume')||'55';
+  const musicSlider=m.querySelector<HTMLInputElement>('#vh-music-volume');if(musicSlider)musicSlider.value=localStorage.getItem('vh-music-volume')||'55';
   m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-open-cameras')?.addEventListener('click',openCameraOverlay);
   m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
