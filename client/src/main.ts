@@ -26,8 +26,10 @@ let muted = localStorage.getItem('vh-muted') === 'true';
 const gameAudio = new EstateAudio();
 const savedEffectsVolume=localStorage.getItem('vh-effects-volume');
 const savedAmbienceVolume=localStorage.getItem('vh-ambience-volume');
+const savedMusicVolume=localStorage.getItem('vh-music-volume');
 if(savedEffectsVolume!==null)gameAudio.setEffectsVolume(Number(savedEffectsVolume)/100);
 if(savedAmbienceVolume!==null)gameAudio.setAmbienceVolume(Number(savedAmbienceVolume)/100);
+if(savedMusicVolume!==null)gameAudio.setMusicVolume(Number(savedMusicVolume)/100);
 gameAudio.setMuted(muted);
 let leftHanded = localStorage.getItem('vh-left-handed') === 'true';
 let lastFootstep = 0;
@@ -172,6 +174,7 @@ async function showSplash() {
       autoStartTimer = undefined;
     }
     splashStarting = true;
+    gameAudio.startPlaylist();
     button.classList.remove('vh-phase-ready');
     button.classList.add('vh-phase-entering');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
@@ -460,15 +463,17 @@ function openCameraOverlay(){
 }
 function openSettingsOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><button id="settings-open-cameras">OPEN FEED</button></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Vent artwork is present; traversal and collision routing are not yet implemented.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Door sabotage visuals exist; physical door gates are not yet implemented.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
+  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Music volume <input id="vh-music-volume" type="range" min="0" max="100" value="55"></label><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><button id="settings-open-cameras">OPEN FEED</button></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Vent artwork is present; traversal and collision routing are not yet implemented.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Door sabotage visuals exist; physical door gates are not yet implemented.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
   const sfxSlider=m.querySelector<HTMLInputElement>('#vh-sfx-volume');if(sfxSlider)sfxSlider.value=localStorage.getItem('vh-effects-volume')||'80';
   const ambienceSlider=m.querySelector<HTMLInputElement>('#vh-ambience-volume');if(ambienceSlider)ambienceSlider.value=localStorage.getItem('vh-ambience-volume')||'32';
+  const musicSlider=m.querySelector<HTMLInputElement>('#vh-music-volume');if(musicSlider)musicSlider.value=localStorage.getItem('vh-music-volume')||'55';
   m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-open-cameras')?.addEventListener('click',openCameraOverlay);
   m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;localStorage.setItem('vh-muted',String(muted));gameAudio.setMuted(muted);const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
   m.querySelector<HTMLInputElement>('#vh-sfx-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setEffectsVolume(Number(value)/100);localStorage.setItem('vh-effects-volume',value);});
   m.querySelector<HTMLInputElement>('#vh-ambience-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setAmbienceVolume(Number(value)/100);localStorage.setItem('vh-ambience-volume',value);});
+  m.querySelector<HTMLInputElement>('#vh-music-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setMusicVolume(Number(value)/100);localStorage.setItem('vh-music-volume',value);});
   m.querySelector('#vh-handedness')?.addEventListener('click',()=>{leftHanded=!leftHanded;localStorage.setItem('vh-left-handed',String(leftHanded));document.querySelector('.controls')?.classList.toggle('left-handed',leftHanded);const b=m.querySelector('#vh-handedness');if(b)b.textContent=leftHanded?'Left-hand joystick':'Right-hand joystick';});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }

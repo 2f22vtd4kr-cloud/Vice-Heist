@@ -30,6 +30,14 @@ export class EstateAudio {
   private loops=new Map<string,AmbientLoop>();
   private lastStep=0;
   private lastZone='';
+  private musicElement?:HTMLAudioElement;
+  private musicGain?:GainNode;
+  private musicFilter?:BiquadFilterNode;
+  private musicVolume=.55;
+  private musicIndex=0;
+  private musicStarted=false;
+  private musicFailures=0;
+  private readonly musicTracks=['/audio/kleiner-finger.mp3','/audio/rose-bianche.mp3'];
   private getContext() {
     if(!this.context){
       const Ctor=window.AudioContext||(window as any).webkitAudioContext;
@@ -51,6 +59,31 @@ export class EstateAudio {
   setMuted(value:boolean){this.muted=value;if(this.master&&this.context)this.master.gain.setTargetAtTime(value?0:1,this.context.currentTime,.03);}
   setEffectsVolume(value:number){this.effectsVolume=Math.max(0,Math.min(1,value));if(this.sfx&&this.context)this.sfx.gain.setTargetAtTime(this.effectsVolume,this.context.currentTime,.03);}
   setAmbienceVolume(value:number){this.ambienceVolume=Math.max(0,Math.min(1,value));if(this.ambience&&this.context)this.ambience.gain.setTargetAtTime(this.ambienceVolume,this.context.currentTime,.08);}
+  setMusicVolume(value:number){this.musicVolume=Math.max(0,Math.min(1,value));if(this.musicGain&&this.context)this.musicGain.gain.setTargetAtTime(this.musicVolume,this.context.currentTime,.12);}
+  startPlaylist(){
+    const ctx=this.getContext();if(!ctx||this.musicStarted)return;
+    this.musicStarted=true;this.musicFailures=0;
+    const audio=new Audio();audio.preload='auto';audio.crossOrigin='anonymous';
+    const source=ctx.createMediaElementSource(audio),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
+    filter.type='lowpass';filter.frequency.value=18_000;gain.gain.value=this.musicVolume;
+    source.connect(filter);filter.connect(gain);gain.connect(this.master!);
+    this.musicElement=audio;this.musicFilter=filter;this.musicGain=gain;
+    audio.addEventListener('playing',()=>{this.musicFailures=0;});
+    audio.addEventListener('ended',()=>this.advancePlaylist(false));
+    audio.addEventListener('error',()=>this.advancePlaylist(true));
+    this.loadMusicTrack();
+  }
+  private loadMusicTrack(){
+    if(!this.musicElement||!this.musicStarted)return;
+    this.musicElement.src=this.musicTracks[this.musicIndex];this.musicElement.load();
+    const attempt=this.musicElement.play();if(attempt&&typeof attempt.catch==='function')attempt.catch(()=>{});
+  }
+  private advancePlaylist(failed:boolean){
+    if(!this.musicStarted)return;
+    if(failed)this.musicFailures++;else this.musicFailures=0;
+    if(this.musicFailures>=this.musicTracks.length){this.musicStarted=false;return;}
+    this.musicIndex=(this.musicIndex+1)%this.musicTracks.length;this.loadMusicTrack();
+  }
   private noiseHit(frequency:number,level:number,duration:number,filterType:BiquadFilterType='bandpass'){
     const ctx=this.context;if(!ctx||!this.noise||!this.sfx)return;
     const source=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
@@ -109,9 +142,14 @@ export class EstateAudio {
       loop.gain.gain.setTargetAtTime(level,ctx.currentTime,.32);
       loop.hum?.gain.setTargetAtTime(level*.22,ctx.currentTime,.32);
     }
+    const musicDistance=Math.hypot(2822-x,504-y);
+    const musicAttenuation=Math.pow(Math.max(0,1-musicDistance/2600),1.35);
+    if(this.musicGain)this.musicGain.gain.setTargetAtTime(this.musicVolume*musicAttenuation,ctx.currentTime,.38);
+    if(this.musicFilter)this.musicFilter.frequency.setTargetAtTime(550+17_500*musicAttenuation,ctx.currentTime,.42);
     this.lastZone=chosen.name;
   }
   dispose(){
+    this.musicStarted=false;this.musicElement?.pause();this.musicElement?.removeAttribute('src');this.musicElement?.load();this.musicElement=undefined;this.musicGain=undefined;this.musicFilter=undefined;
     for(const loop of this.loops.values()){try{loop.source.stop();loop.osc?.stop();}catch{/* already stopped */}}
     this.loops.clear();void this.context?.close();this.context=undefined;this.noise=undefined;
   }
