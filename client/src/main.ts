@@ -760,12 +760,12 @@ class Estate extends Phaser.Scene {
   private drawVision(time:number){
     const canvas=this.visionCanvas,ctx=this.visionContext;if(!canvas||!ctx)return;
     // Keep visibility work below the main 60fps render budget.
-    if(time-this.lastVision<50)return;this.lastVision=time;
+    if(time-this.lastVision<33)return;this.lastVision=time;
     const width=canvas.clientWidth,height=canvas.clientHeight;
     ctx.clearRect(0,0,width,height);
     if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown)return;
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer)return;
-    const originX=mePlayer.x,originY=mePlayer.y;
+    const actor=this.actors.get(myId),originX=actor?.x??mePlayer.x,originY=actor?.y??mePlayer.y;
     const radius=!mePlayer.alive?430:latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
     const camera=this.cameras.main;
     // Match Phaser's camera matrix, including its viewport-origin offset.
