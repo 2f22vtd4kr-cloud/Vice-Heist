@@ -16,8 +16,10 @@ const origin = 'http://127.0.0.1:' + port;
 const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   cwd: process.cwd(),
   env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false', VICE_HEIST_TEST_SEED: '20261123' },
-  stdio: 'ignore',
+  stdio: ['ignore', 'ignore', 'pipe'],
 });
+let serverErrors = '';
+child.stderr?.on('data', chunk => { serverErrors += chunk.toString(); });
 let socket;
 
 try {
@@ -44,7 +46,7 @@ try {
       let history = histories.get(bot.id);
       if (!history) { history = { name: bot.name, samples: [] }; histories.set(bot.id, history); }
       history.samples.push({
-        time, x: bot.x, y: bot.y, alive: bot.alive,
+        time, phase: state.phase, x: bot.x, y: bot.y, alive: bot.alive,
         tasks: state.tasks.filter(task => !task.done).map(task => ({ x: task.x, y: task.y })),
         players: state.players.filter(player => player.id !== bot.id && player.alive).map(player => ({ x: player.x, y: player.y })),
       });
@@ -55,6 +57,7 @@ try {
 
   const startedAt = Date.now();
   await new Promise(resolve => setTimeout(resolve, 25_000));
+  assert.equal(child.exitCode, null, 'game server should remain alive during bot navigation: ' + serverErrors);
 
   const livingBots = latest.players.filter(player => player.bot && player.alive);
   const movedBots = livingBots.filter(player => {
@@ -68,7 +71,8 @@ try {
     for (let window = 0; window < 5; window++) {
       const from = startedAt + window * 5_000;
       const to = from + 5_000;
-      const samples = history.samples.filter(sample => sample.time >= from && sample.time <= to);
+      const samples = history.samples.filter(sample => sample.time >= from && sample.time <= to && sample.phase === 'PLAYING');
+      // NPCs correctly hold position during an active meeting; only judge navigation while the round is live.
       if (samples.length < 2) continue;
       let travelled = 0;
       for (let index = 1; index < samples.length; index++) {
@@ -89,11 +93,17 @@ try {
   // A human crew member is the priority target for killer NPCs in solo QA.
   if(latest.selfRole==='CREW'){
     assert.equal(humanPlayer.alive,false,'when the human is Crew, the killer NPC must successfully eliminate the human during the 25-second bot hunt regression');
+    assert.equal(latest.phase,'MEETING','Crew NPCs should discover and report the eliminated human during the solo regression');
   }
   assert.deepEqual(stuckBots, [], 'living bots must not remain stationary away from tasks or other players: ' + stuckBots.join(', '));
   console.log('Bot navigation regression passed: ' + movedBots.length + '/' + livingBots.length + ' surviving bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
 } finally {
   socket?.close();
-  child.kill('SIGTERM');
-  await new Promise(resolve => child.once('exit', resolve));
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGTERM');
+    await new Promise(resolve => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve();
+      child.once('exit', resolve);
+    });
+  }
 }

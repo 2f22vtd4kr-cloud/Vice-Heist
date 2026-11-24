@@ -336,6 +336,23 @@ function botsTick(r: Room, now: number) {
     }
     for(const bot of alive.filter(p=>p.bot)){
       if(bot.role==='CREW'){
+        // Crew NPCs investigate nearby unreported bodies before resuming tasks.
+        // They need to reach the corpse and have a clear line of sight before
+        // they can trigger a report, so a distant marker alone is not enough.
+        const body=[...r.players.values()].filter(p=>!p.alive&&!p.reported)
+          .map(p=>({player:p,distance:Math.hypot(p.corpseX-bot.x,p.corpseY-bot.y)}))
+          .filter(entry=>entry.distance<1100)
+          .sort((a,b)=>a.distance-b.distance)[0]?.player;
+        if(body){
+          const target={x:body.corpseX,y:body.corpseY};
+          moveBotToward(bot,target,288,dtSeconds,'body-report:'+body.id,now);
+          if(Math.hypot(target.x-bot.x,target.y-bot.y)<155&&hasLineOfSight(bot,target)){
+            body.reported=true;botRoutes.delete(bot.id);botTaskAssignments.delete(bot.id);
+            beginMeeting(r,bot.name+' found '+body.name+"'s body.");
+            break;
+          }
+          continue;
+        }
         let task=r.tasks.find(t=>!t.done&&t.id===botTaskAssignments.get(bot.id));
         if(!task){
           const claimed=new Set([...botTaskAssignments.entries()].filter(([id])=>id!==bot.id&&alive.some(p=>p.id===id&&p.role==='CREW')).map(([,taskId])=>taskId));
@@ -387,7 +404,7 @@ function botsTick(r: Room, now: number) {
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
           r.lastKill={killerId:bot.id,victimId:victim.id,at:now};victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
-          for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
+          for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420&&hasLineOfSight(witness,bot))r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
         }
       }
@@ -520,7 +537,7 @@ io.on('connection', socket => {
     if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass server verification. Try again.'});return;}
     task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
   });
-  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
+  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420&&hasLineOfSight(witness,player))room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.corpseX-player.x,t.corpseY-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
   socket.on('emergency',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;if(player.emergencyUsed||Date.now()<room.emergencyCooldownUntil){socket.emit('notice','Emergency protocol is unavailable right now.');return;}player.emergencyUsed=true;room.emergencyCooldownUntil=Date.now()+60_000;beginMeeting(room,`${player.name} called an emergency meeting.`);});

@@ -39,3 +39,10 @@
 - Added server-measured swipe duration and fuel-hold duration checks, plus elapsed-time validation for the garage scan.
 - Existing fixed task patterns and client-asserted hold/scan values have been removed from the active task flow.
 - Still outstanding: real recorded environmental ambience, weapon-specific attack animation selection, vent traversal, physical door collision gates, deeper NPC social schedules/deception, and physical iPhone/Replit/Telegram validation. The supplied music binaries still need to be added to the repository; this connector cannot write uploaded binary bytes to GitHub directly.
+
+
+## NPC evidence follow-up — 2026-11-24
+
+- Crew NPCs now investigate nearby unreported bodies, navigate toward the corpse, and call a meeting only after reaching it with clear line of sight.
+- Kill-witness suspicion now requires actual line of sight as well as proximity, reducing false accusations through walls.
+- Still outstanding: broader NPC social routines, coordinated buddy patrols and deception, weapon-specific attack art, vent traversal, physical door gates, recorded environmental ambience, the uploaded music binaries in the repo, and device/preview validation.
