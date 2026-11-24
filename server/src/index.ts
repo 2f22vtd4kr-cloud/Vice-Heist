@@ -30,7 +30,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -98,7 +98,7 @@ function createTaskChallenge(id:string):string{
   switch(id){
     case 'vault':return String(1000+Math.floor(random()*9000));
     case 'server':return shuffled(['red','blue','gold','teal']).join(',');
-    case 'generator':return Array.from({length:4},()=>random()<.5?'1':'0').join('');
+    case 'generator':return String(1+Math.floor(random()*14)).padStart(4,'0');
     case 'dock':return String(82+Math.floor(random()*19));
     case 'bar':return shuffled(['lime','ice','rum']).join(',');
     case 'pool':return String(68+Math.floor(random()*9));
@@ -133,7 +133,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -145,7 +145,7 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
-  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
+  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => random() - 0.5);
@@ -473,7 +473,23 @@ io.on('connection', socket => {
     const taskId=typeof input?.taskId==='string'?input.taskId:'';
     const task=room.tasks.find(t=>t.id===taskId&&!t.done);
     if(!task||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Move closer to an unfinished task.'});return;}
-    const key=player.id+':'+taskId;room.taskStartedAt.set(key,Date.now());room.taskHoldStartedAt.delete(key);respond({ok:true});
+    const key=player.id+':'+taskId;room.taskStartedAt.set(key,Date.now());room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);respond({ok:true});
+  });
+  socket.on('task:swipe-start',(input?:{taskId?:unknown})=>{
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW')return;
+    const taskId=typeof input?.taskId==='string'?input.taskId:'',key=player.id+':'+taskId;
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done);
+    if(task?.id==='helipad'&&room.taskStartedAt.has(key)&&Math.hypot(task.x-player.x,task.y-player.y)<150)room.taskSwipeStartedAt.set(key,Date.now());
+  });
+  socket.on('task:swipe-end',(input?:{taskId?:unknown},ack?:(result:{ok:boolean;error?:string})=>void)=>{
+    const respond=(result:{ok:boolean;error?:string})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW'){respond({ok:false,error:'Swipe unavailable.'});return;}
+    const taskId=typeof input?.taskId==='string'?input.taskId:'',key=player.id+':'+taskId;
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done),started=room.taskSwipeStartedAt.get(key);
+    if(task?.id!=='helipad'||started===undefined||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Start the card swipe at the reader.'});return;}
+    const duration=Date.now()-started;room.taskSwipeStartedAt.delete(key);
+    if(duration<250||duration>1200){room.taskSwipeDuration.delete(key);respond({ok:false,error:'Swipe speed was outside the reader window.'});return;}
+    room.taskSwipeDuration.set(key,duration);respond({ok:true});
   });
   socket.on('task:hold-start',(input?:{taskId?:unknown})=>{
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW')return;
@@ -494,15 +510,15 @@ io.on('connection', socket => {
     const valid:Record<string,()=>boolean>={
       vault:()=>answer===challenge,
       server:()=>answer==='blue,gold,red,teal',
-      helipad:()=>numeric>=250&&numeric<=1200&&elapsed>=200&&elapsed<=10_000,
+      helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=250&&(room!.taskSwipeDuration.get(key)||0)<=1200,
       generator:()=>answer===challenge,
-      dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*19,
+      dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*19&&Date.now()-holdStarted<=10_000,
       bar:()=>answer===challenge,
       pool:()=>numeric>=Number(challenge)-3&&numeric<=Number(challenge)+3,
-      garage:()=>answer==='complete'&&elapsed>=Number(challenge)-100,
+      garage:()=>answer==='complete'&&elapsed>=Number(challenge)-100&&elapsed<=Number(challenge)+12_000,
     };
     if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass server verification. Try again.'});return;}
-    task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
+    task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
   });
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
