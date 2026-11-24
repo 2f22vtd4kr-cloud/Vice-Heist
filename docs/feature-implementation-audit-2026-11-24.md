@@ -31,22 +31,20 @@ This document supersedes the earlier same-day audit notes below. It reflects the
 - Task challenges are randomized per round. The server validates task-specific answer classes, proximity, task sessions and elapsed-time checks for swipe/fuel/scan tasks before completion.
 - Crew NPCs investigate nearby unreported bodies and report only after reaching them with line of sight. Kill-witness suspicion requires line of sight.
 - Crew bots receive distinct unclaimed tasks and use collision-aware navigation. Mole NPCs patrol and hunt; solo target selection has a dedicated regression.
-- NPC meeting dialogue now rotates speakers with per-NPC cooldowns, answers location questions using the bot's current sector, includes distinct fallback voices and role-aware Mole deflection.
+- NPC meeting dialogue rotates speakers with per-NPC cooldowns, answers location questions using the bot's current sector, includes distinct fallback voices and role-aware Mole deflection. Crew NPCs also perform brief buddy check-ins when they naturally cross paths, then resume independent tasks.
 
 ### Vents, security and combat
 - Mole-only vent traversal is implemented across eight sector anchors, with collision-safe anchor resolution, proximity checks and cooldown. Vent coordinates are hidden from Crew snapshots and shown to the Mole on the map/radar.
-- The security monitor is a live sector-map/player-tracking view, not independent rendered surveillance-camera footage. Lights sabotage now suppresses tracking and displays a signal-loss state until the sabotage expires.
+- The security monitor renders eight fixed top-down sector camera crops with current animated character sprite frames, facing direction, names and alive/dead state. Each sector has its own camera center independent of the player's camera. Lights sabotage suppresses sprite tracking and displays a signal-loss state until the sabotage expires.
 - Mole weapons are assigned deterministically per round (crowbar, pistol or knife). Kill events carry weapon identity; the client renders distinct vector attack effects and matching sound cues.
 - Eliminated characters now play a short collapse tween before entering ghost-float mode.
 
 ## Still outstanding
 
 1. **Physical door lockdown:** the server has a placeholder `doors` sabotage state, but the game does not yet have authored, collision-aligned door gate positions or a selectable door-lockdown control. Do not describe doors as physically locked.
-2. **True CCTV footage:** the current security monitor is a sector map with live player markers. It is not a set of independent camera-angle views rendered from the game world.
-3. **Recorded environmental ambience:** current water/traffic/room/machinery ambience and event cues are synthesized. Recorded or properly licensed field recordings have not been added.
-4. **Deeper NPC routines:** location-aware dialogue, role-aware deflection and evidence reactions are present; coordinated buddy patrols and richer independent civilian/social schedules are not.
-5. **Boat refuelling target:** its target position has not been changed because its exact walkable location must be aligned to the authored collision mask, not guessed.
-6. **Physical playtesting:** iPhone Safari, Replit Preview and Telegram Mini App testing are intentionally left to the user.
+2. **Recorded ambience:** water/traffic/room/machinery beds and event cues are synthesized. Recorded or properly licensed field recordings have not been added; the current request for ambient beds and jazzy action cues is covered procedurally.
+3. **Broader NPC schedules:** independent task selection, Mole patrol/hunt, evidence reactions, meeting dialogue and brief buddy check-ins are implemented; longer multi-step civilian routines and coordinated group patrol plans remain a possible enhancement.
+4. **Physical playtesting:** iPhone Safari, Replit Preview and Telegram Mini App testing are intentionally left to the user.
 
 ## Verification and merge record
 
@@ -60,5 +58,7 @@ The latest implementation batches were merged after the repository's build and r
 - PR #52 — preload the illustrated menu before splash readiness.
 - PR #53 — connect lights sabotage to CCTV tracking loss.
 - PR #54 — natural collapse animation before ghost mode.
+- PR #56 — independent NPC buddy check-ins.
+- PR #58 — rendered fixed top-down CCTV sector cameras.
 
-PR #49 and PR #51 were superseded and closed. Automated CI does not replace the user's requested real-device playtest.
+PR #49, PR #51 and PR #57 were superseded and closed. Automated CI does not replace the user's requested real-device playtest.
