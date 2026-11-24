@@ -98,7 +98,7 @@ function createTaskChallenge(id:string):string{
   switch(id){
     case 'vault':return String(1000+Math.floor(random()*9000));
     case 'server':return shuffled(['red','blue','gold','teal']).join(',');
-    case 'generator':return String(1+Math.floor(random()*14)).padStart(4,'0');
+    case 'generator':return (1+Math.floor(random()*14)).toString(2).padStart(4,'0');
     case 'dock':return String(82+Math.floor(random()*19));
     case 'bar':return shuffled(['lime','ice','rum']).join(',');
     case 'pool':return String(68+Math.floor(random()*9));
