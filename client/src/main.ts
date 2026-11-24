@@ -428,9 +428,10 @@ function openMapOverlay(){
   const tasks=latest.tasks.map(t=>`<div class="map-task ${t.done?'done':''}"><img src="${artUrl('icon_task_marker')}" alt=""><span>${escapeHtml(t.label)}</span><b>${t.done?'DONE':'OPEN'}</b></div>`).join('');
   const players=latest.players.map(p=>`<i class="blueprint-player ${p.id===myId?'self':''} ${p.alive?'':'down'}" title="${escapeHtml(p.name)}" style="left:${p.x/8192*100}%;top:${p.y/4096*100}%"></i>`).join('');
   const tasksOnMap=latest.tasks.map(t=>`<i class="blueprint-task ${t.done?'done':''}" title="${escapeHtml(t.label)}" style="left:${t.x/8192*100}%;top:${t.y/4096*100}%"></i>`).join('');
+  const ventsOnMap=(latest.vents||[]).map(v=>`<i class="blueprint-vent" title="Mole vent · ${escapeHtml(v.id)}" style="left:${v.x/8192*100}%;top:${v.y/4096*100}%"></i>`).join('');
   const sectors=['Helipad / security','VIP lounge','Master suite / vault','Pool / terrace','Garage','Server room','Generator bay','Speedboat dock'];
   const tiles=sectors.map((label,i)=>`<div class="blueprint-sector"><img src="/assets/map/take-${i+1}.webp" alt=""><span>${label}</span></div>`).join('');
-  m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · 4 × 2 SECTORS</p><h3>Estate blueprint</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="estate-blueprint"><div class="blueprint-grid">${tiles}</div><div class="blueprint-markers">${tasksOnMap}${players}</div></div><div class="blueprint-legend"><span><i class="blueprint-player self"></i> You / crew</span><span><i class="blueprint-task"></i> Objective</span></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
+  m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · 4 × 2 SECTORS</p><h3>Estate blueprint</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="estate-blueprint"><div class="blueprint-grid">${tiles}</div><div class="blueprint-markers">${tasksOnMap}${ventsOnMap}${players}</div></div><div class="blueprint-legend"><span><i class="blueprint-player self"></i> You / crew</span><span><i class="blueprint-task"></i> Objective</span></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
   m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
 }
 const CAMERA_SECTORS=[
@@ -559,7 +560,7 @@ function updateHud(s: Snapshot | null) {
   const radar=document.querySelector<HTMLDivElement>('#radar');if(radar){
     const tasks=s.tasks.map(t=>'<i class="radar-task '+(t.done?'done':'')+'" style="left:'+(t.x/8192*100)+'%;top:'+(t.y/4096*100)+'%"></i>').join('');
     const players=s.players.map(p=>'<i class="radar-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" style="left:'+(p.x/8192*100)+'%;top:'+(p.y/4096*100)+'%;--marker:'+escapeHtml(p.color)+'"></i>').join('');
-    radar.innerHTML=tasks+players;
+    const vents=(s.vents||[]).map(v=>'<i class="radar-vent" title="Mole vent" style="left:'+(v.x/8192*100)+'%;top:'+(v.y/4096*100)+'%"></i>').join('');radar.innerHTML=tasks+vents+players;
   }
   setButtonArt('use',local?.alive&&s.selfRole!=='MOLE'&&!!nearestTask()?'btn_use_active':'btn_use_dim');
   setButtonArt('report',local?.alive&&!!nearestBody()?'btn_report_active':'btn_report_dim');
