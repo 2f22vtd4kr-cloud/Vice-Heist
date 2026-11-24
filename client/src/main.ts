@@ -169,9 +169,9 @@ async function showSplash() {
 
   const button = document.querySelector<HTMLButtonElement>('#vh-splash');
   if (!button) return;
-remove autoplay timer declaration  const enterMenu = () => {
+  const enterMenu = () => {
     if (!splashReady || splashDismissed || splashStarting || phaserLoadError) return;
-remove autoplay timer cleanup    splashStarting = true;
+    splashStarting = true;
     gameAudio.startPlaylist();
     button.classList.remove('vh-phase-ready');
     button.classList.add('vh-phase-entering');
@@ -268,7 +268,7 @@ remove autoplay timer cleanup    splashStarting = true;
     button.setAttribute('aria-label', 'Tap to start Vice Heist');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
-remove automatic start that bypassed audio user gesture  } catch (error) {
+  } catch (error) {
     phaserLoadError = error instanceof Error ? error.message : String(error);
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
     const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
