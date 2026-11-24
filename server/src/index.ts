@@ -175,6 +175,36 @@ function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   }
   if(previous[goal]===-2)return[];const path:number[]=[];for(let at=goal;at!==-1;at=previous[at])path.push(at);path.reverse();return path;
 }
+// Find the closest point near an objective that is actually connected to the
+// estate's walkable navigation graph. This avoids moving a task onto the far
+// side of a decorative planter or wall just because its authored coordinate
+// looks visually close to the boat.
+function nearestReachablePoint(from:{x:number;y:number},target:{x:number;y:number},maxDistance=640):{x:number;y:number}|undefined{
+  const start=nearestWalkableCell(cellAt(from.x,from.y));
+  const visited=new Uint8Array(BOT_COLS*BOT_ROWS);
+  const queue=new Int32Array(BOT_COLS*BOT_ROWS);
+  let head=0,tail=0;queue[tail++]=start;visited[start]=1;
+  let best:number|undefined,bestDistance=maxDistance;
+  while(head<tail){
+    const current=queue[head++],point=cellCenter(current),distance=Math.hypot(point.x-target.x,point.y-target.y);
+    if(distance<bestDistance){best=current;bestDistance=distance;}
+    const cx=current%BOT_COLS,cy=Math.floor(current/BOT_COLS);
+    for(const[dx,dy]of botNeighbors){
+      const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
+      const next=y*BOT_COLS+x;if(visited[next])continue;
+      const candidate=cellCenter(next);if(blocked(candidate.x,candidate.y,18))continue;
+      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
+      visited[next]=1;queue[tail++]=next;
+    }
+  }
+  return best===undefined?undefined:cellCenter(best);
+}
+const dockObjective=TASKS.find(task=>task.id==='dock');
+if(dockObjective){
+  const reachable=nearestReachablePoint({x:2800,y:2000},{x:dockObjective.x,y:dockObjective.y});
+  if(reachable){dockObjective.x=reachable.x;dockObjective.y=reachable.y;}
+  else console.warn('[Vice Heist] No reachable dock task point found within 640 world units of the authored boat target.');
+}
 function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boolean{
   const dx=target.x-bot.x,dy=target.y-bot.y,base=Math.atan2(dy,dx);
   let best:{x:number;y:number;score:number}|undefined;
@@ -237,13 +267,27 @@ function finish(r: Room) {
 function beginMeeting(r: Room, reason: string) { r.phase='MEETING';r.meeting={reason,votes:{},endsAt:Date.now()+30_000};notice(r,reason);emit(r);}
 function fallbackBotLine(bot: Player, text: string, r: Room): string {
   const msg=text.toLowerCase();
+  const pick=(lines:string[])=>lines[Math.floor(random()*lines.length)];
   const leading=[...r.suspicions.entries()].sort((a,b)=>b[1]-a[1])[0];
   const suspect=leading&&leading[1]>=2?r.players.get(leading[0]):undefined;
-  if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))return `${suspect.name} was close to the last incident. I want to hear their route.`;
-  if (/where|location|last seen|saw/.test(msg)) return ['I was near the lounge; I saw someone cut through the hall.','I crossed the main hall a moment ago.','I was checking the cameras room. Ask who else was there.'][Math.floor(random()*3)];
-  if (/suspect|who|vote|mole|impostor/.test(msg)) return ['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.'][Math.floor(random()*3)];
-  if (/kill|body|dead|report/.test(msg)) return ['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?'][Math.floor(random()*3)];
-  return ['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.'][Math.floor(random()*3)];
+  const directMention=msg.includes(bot.name.toLowerCase());
+  if(directMention&&/suspect|mole|impostor|vote|kill|where|last seen/.test(msg))
+    return pick([`I’m here. What room and time are you asking about?`,`Do not pin it on me without a timeline. Who actually saw that?`,`I can explain my route, but give me a specific sighting first.`]);
+  if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))
+    return pick([`${suspect.name} was close to the last incident. I want to hear their route.`,`The last report puts ${suspect.name} near the area. Does anyone have a second sighting?`,`I’m watching ${suspect.name}, but proximity alone is not proof.`]);
+  if(/camera|security|feed/.test(msg))
+    return pick(['The camera room might help with timing, but it won’t show every corridor.','Did anyone check the security feed before the lights went out?','A camera sighting needs a time stamp, not just a colour.']);
+  if(/boat|dock|fuel|engine|water/.test(msg))
+    return pick(['The dock is a long walk from the main rooms. Who was actually down there?','If someone used the boat route, we should compare who crossed the garage.','I have not got a clean sighting near the dock yet.']);
+  if(/lights|sabotage|dark|power/.test(msg))
+    return pick(['The outage gives someone cover. Stick to who was together just before it.','Power is back, but we still need to account for the corridor traffic.','Who was nearest the generator when the lights dropped?']);
+  if(/task|job|objective|where|location|last seen|saw/.test(msg))
+    return pick(['I was checking an objective. Did anyone cross the hall while I was there?','I saw movement near the main corridor, but I could not make out who it was.','Which room are we comparing? The route matters more than the colour.']);
+  if(/suspect|who|vote|mole|impostor/.test(msg))
+    return pick(['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.']);
+  if(/kill|body|dead|report/.test(msg))
+    return pick(['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?']);
+  return pick(['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.']);
 }
 async function botReply(r: Room, sender: Player, text: string) {
   const bots=[...r.players.values()].filter(p=>p.bot&&p.alive).slice(0,2);
@@ -306,11 +350,11 @@ function botsTick(r: Room, now: number) {
         // the human from across the map. It only commits to a hunt at close
         // range, with a low per-tick decision chance; an active short hunt is
         // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<3_500&&current.distance<650;
-        const commit=retain||!!humanTarget&&humanTarget.distance<620&&random()<0.015;
+        const retain=!!current&&!!previous&&now-previous.selectedAt<5_000&&current.distance<1_200;
+        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&random()<0.04;
         if(commit&&humanTarget){
           if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,260,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+          moveBotToward(bot,humanTarget.candidate,310,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];

@@ -22,8 +22,13 @@ let currentPhase = 'MENU';
 let currentMeetingEnds = 0;
 let roomCode = sessionStorage.getItem('vh-room-code') || '';
 let groqKey = '';
-let muted = false;
+let muted = localStorage.getItem('vh-muted') === 'true';
 const gameAudio = new EstateAudio();
+const savedEffectsVolume=localStorage.getItem('vh-effects-volume');
+const savedAmbienceVolume=localStorage.getItem('vh-ambience-volume');
+if(savedEffectsVolume!==null)gameAudio.setEffectsVolume(Number(savedEffectsVolume)/100);
+if(savedAmbienceVolume!==null)gameAudio.setAmbienceVolume(Number(savedAmbienceVolume)/100);
+gameAudio.setMuted(muted);
 let leftHanded = localStorage.getItem('vh-left-handed') === 'true';
 let lastFootstep = 0;
 let joystick = { x: 0, y: 0 };
@@ -408,7 +413,7 @@ function wireControls() {
   document.querySelector('#emergency')!.addEventListener('click',()=>{socket.emit('emergency');tone(300);haptic();});
   document.querySelector('#kill')!.addEventListener('click',()=>{const p=nearestTarget();if(p){socket.emit('kill',p.id);tone(160);}else toast('No target in elimination range.');haptic();});
   document.querySelector('#sabotage')!.addEventListener('click',()=>{socket.emit('sabotage','lights');tone(220);haptic();});
-  document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;gameAudio.setMuted(muted);document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
+  document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;localStorage.setItem('vh-muted',String(muted));gameAudio.setMuted(muted);document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
   document.querySelector('#map-toggle')!.addEventListener('click',()=>openMapOverlay());
   document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
   document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
@@ -426,11 +431,13 @@ function openMapOverlay(){
 function openSettingsOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
   m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><small>Camera network is not yet connected to live server state.</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Vent artwork is present; traversal and collision routing are not yet implemented.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Door sabotage visuals exist; physical door gates are not yet implemented.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
+  const sfxSlider=m.querySelector<HTMLInputElement>('#vh-sfx-volume');if(sfxSlider)sfxSlider.value=localStorage.getItem('vh-effects-volume')||'80';
+  const ambienceSlider=m.querySelector<HTMLInputElement>('#vh-ambience-volume');if(ambienceSlider)ambienceSlider.value=localStorage.getItem('vh-ambience-volume')||'32';
   m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
-  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;gameAudio.setMuted(muted);const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
-  m.querySelector<HTMLInputElement>('#vh-sfx-volume')?.addEventListener('input',e=>gameAudio.setEffectsVolume(Number((e.target as HTMLInputElement).value)/100));
-  m.querySelector<HTMLInputElement>('#vh-ambience-volume')?.addEventListener('input',e=>gameAudio.setAmbienceVolume(Number((e.target as HTMLInputElement).value)/100));
+  m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;localStorage.setItem('vh-muted',String(muted));gameAudio.setMuted(muted);const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
+  m.querySelector<HTMLInputElement>('#vh-sfx-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setEffectsVolume(Number(value)/100);localStorage.setItem('vh-effects-volume',value);});
+  m.querySelector<HTMLInputElement>('#vh-ambience-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setAmbienceVolume(Number(value)/100);localStorage.setItem('vh-ambience-volume',value);});
   m.querySelector('#vh-handedness')?.addEventListener('click',()=>{leftHanded=!leftHanded;localStorage.setItem('vh-left-handed',String(leftHanded));document.querySelector('.controls')?.classList.toggle('left-handed',leftHanded);const b=m.querySelector('#vh-handedness');if(b)b.textContent=leftHanded?'Left-hand joystick':'Right-hand joystick';});
 }
 function nearestTask(): Task | undefined { return latest?.tasks.filter(t=>!t.done).map(t=>({...t,d:Math.hypot(t.x-me.x,t.y-me.y)})).filter(t=>t.d<150).sort((a,b)=>a.d-b.d)[0]; }
