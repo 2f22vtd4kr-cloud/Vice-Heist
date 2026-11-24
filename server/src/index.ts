@@ -510,7 +510,7 @@ io.on('connection', socket => {
     const valid:Record<string,()=>boolean>={
       vault:()=>answer===challenge,
       server:()=>answer==='blue,gold,red,teal',
-      helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=250&&(room!.taskSwipeDuration.get(key)||0)<=1200,
+      helipad:()=>answer==='complete'&&elapsed>=200&&elapsed<=10_000&&(room!.taskSwipeDuration.get(key)||0)>=200&&(room!.taskSwipeDuration.get(key)||0)<=1500,
       generator:()=>answer===challenge,
       dock:()=>answer==='complete'&&holdStarted!==undefined&&Date.now()-holdStarted>=Number(challenge)*19&&Date.now()-holdStarted<=10_000,
       bar:()=>answer===challenge,
