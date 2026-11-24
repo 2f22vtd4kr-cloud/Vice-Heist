@@ -89,7 +89,7 @@ export class EstateAudio {
     const source=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
     source.buffer=this.noise;filter.type=filterType;filter.frequency.value=frequency;filter.Q.value=filterType==='bandpass'?0.8:0.5;
     gain.gain.setValueAtTime(.0001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(level,ctx.currentTime+.006);gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);
-    source.connect(filter);filter.connect(gain);gain.connect(this.sfx);source.start();source.stop(ctx.currentTime+duration+.02);
+    source.connect(filter);filter.connect(gain);gain.connect(this.sfx);source.start(0,Math.random()*Math.max(.01,this.noise.duration-duration));source.stop(ctx.currentTime+duration+.02);
   }
   play(event:SoundEvent){
     const ctx=this.getContext(),sfx=this.sfx;if(!ctx||this.muted||!sfx)return;
