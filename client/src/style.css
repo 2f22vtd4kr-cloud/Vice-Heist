@@ -660,3 +660,25 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .map-task{padding:7px 8px;}
   .settings-panel{padding:18px;}
 }
+
+
+/* Ghost controls: the illustrated joystick base asset has a non-circular
+   silhouette on some mobile aspect ratios. Use a geometrically circular
+   touch target while spectating, with a fixed square flex item. */
+#overlay .controls.ghost-controls #stick {
+  box-sizing: border-box !important;
+  width: 124px !important;
+  height: 124px !important;
+  min-width: 124px !important;
+  min-height: 124px !important;
+  max-width: 124px !important;
+  max-height: 124px !important;
+  flex: 0 0 124px !important;
+  aspect-ratio: 1 / 1 !important;
+  border-radius: 50% !important;
+  margin-left: auto !important;
+  background: radial-gradient(circle, rgba(16,17,22,.62) 0 58%, rgba(16,17,22,.25) 59% 100%) !important;
+  background-image: none !important;
+  border: 2px solid rgba(255,240,220,.62) !important;
+  overflow: visible;
+}
