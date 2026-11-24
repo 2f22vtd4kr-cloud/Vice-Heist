@@ -17,7 +17,7 @@ const ZONES: Zone[] = [
   {name:'dock',x:7172,y:2401,kind:'water',cutoff:980,frequency:135,radius:1550},
   {name:'terrace',x:6900,y:900,kind:'city',cutoff:310,frequency:118,radius:1500},
 ];
-type AmbientLoop = {source:AudioBufferSourceNode;filter:BiquadFilterNode;gain:GainNode;osc?:OscillatorNode};
+type AmbientLoop = {source:AudioBufferSourceNode;filter:BiquadFilterNode;gain:GainNode;osc?:OscillatorNode;hum?:GainNode};
 export class EstateAudio {
   private context?: AudioContext;
   private master?: GainNode;
@@ -89,11 +89,11 @@ export class EstateAudio {
     const source=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
     source.buffer=this.noise;source.loop=true;filter.type=zone.kind==='water'?'bandpass':'lowpass';filter.frequency.value=zone.cutoff;filter.Q.value=zone.kind==='water'?0.55:0.25;
     gain.gain.value=0;source.connect(filter);filter.connect(gain);gain.connect(this.ambience);source.start();
-    let osc:OscillatorNode|undefined;
+    let osc:OscillatorNode|undefined,hum:GainNode|undefined;
     if(zone.kind==='fluorescent'||zone.kind==='server'||zone.kind==='generator'||zone.kind==='lounge'){
-      osc=ctx.createOscillator();const hum=ctx.createGain();osc.type='sine';osc.frequency.value=zone.frequency;hum.gain.value=zone.kind==='lounge'?.012:.035;osc.connect(hum);hum.connect(this.ambience);osc.start();
+      osc=ctx.createOscillator();hum=ctx.createGain();osc.type='sine';osc.frequency.value=zone.frequency;hum.gain.value=0;osc.connect(hum);hum.connect(this.ambience);osc.start();
     }
-    return {source,filter,gain,osc};
+    return {source,filter,gain,osc,hum};
   }
   updateWorld(x:number,y:number){
     const ctx=this.getContext();if(!ctx||!this.ambience)return;
@@ -107,6 +107,7 @@ export class EstateAudio {
       const attenuation=Math.pow(Math.max(0,1-d/zone.radius),1.7);
       const level=zone.name===chosen.name?this.ambienceVolume*attenuation*.22:0;
       loop.gain.gain.setTargetAtTime(level,ctx.currentTime,.32);
+      loop.hum?.gain.setTargetAtTime(level*.22,ctx.currentTime,.32);
     }
     this.lastZone=chosen.name;
   }
