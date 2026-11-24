@@ -442,6 +442,12 @@ let cameraIndex=0;
 let cameraOpen=false;
 function updateCameraFeed(){
   if(!cameraOpen||!latest)return;
+  if(!atCctvConsole()){
+    cameraOpen=false;
+    const panel=document.querySelector<HTMLDivElement>('#meet');if(panel)panel.innerHTML='';
+    toast('Security camera feed closed: return to the server-room console.');
+    return;
+  }
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
   const camera=CAMERA_SECTORS[cameraIndex],sector=camera.tile-1,col=sector%4,row=Math.floor(sector/4);
   const left=col*2048,top=row*2048;
