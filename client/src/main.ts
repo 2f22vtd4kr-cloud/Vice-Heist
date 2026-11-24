@@ -479,7 +479,16 @@ function updateHud(s: Snapshot | null) {
   if(!s||currentPhase!=='PLAYING')return;
   const done=s.tasks.filter(t=>t.done).length;const objective=document.querySelector('#objective');const local=s.players.find(p=>p.id===myId);
   const actions=document.querySelector<HTMLElement>('.actions');if(actions)actions.style.display=local?.alive?'grid':'none';
-  const controls=document.querySelector<HTMLElement>('.controls');controls?.classList.toggle('ghost-controls',!!local&&!local.alive);
+  const controls=document.querySelector<HTMLElement>('.controls');
+  const stick=document.querySelector<HTMLElement>('#stick');
+  const ghostMode=!!local&&!local.alive;
+  controls?.classList.toggle('ghost-controls',ghostMode);
+  if(controls)controls.style.justifyContent=ghostMode?'flex-end':'space-between';
+  if(stick&&ghostMode){
+    Object.assign(stick.style,{width:'124px',height:'124px',minWidth:'124px',minHeight:'124px',maxWidth:'124px',maxHeight:'124px',flex:'0 0 124px',aspectRatio:'1 / 1',borderRadius:'50%',marginLeft:'auto'});
+  }else if(stick){
+    for(const property of ['width','height','min-width','min-height','max-width','max-height','flex','aspect-ratio','border-radius','margin-left'])stick.style.removeProperty(property);
+  }
   if(objective){const label=objective.querySelector<HTMLElement>('.objective-label');if(label)label.textContent=local?.alive?`${done}/${s.taskTotal} estate jobs secured · ${s.selfRole==='MOLE'?'You are the Mole':'Find the Mole'}`:'YOU ARE DOWN · SPECTATING';const fill=objective.querySelector<HTMLElement>('#objective-fill');if(fill)fill.style.width=`${s.taskTotal?Math.round(done/s.taskTotal*100):0}%`;}
   const radar=document.querySelector<HTMLDivElement>('#radar');if(radar){
     const tasks=s.tasks.map(t=>'<i class="radar-task '+(t.done?'done':'')+'" style="left:'+(t.x/8192*100)+'%;top:'+(t.y/4096*100)+'%"></i>').join('');
@@ -543,6 +552,8 @@ class Estate extends Phaser.Scene {
   private mapDesired = new Set<number>();
   private mapLoading = new Set<number>();
   private mapLoadInFlight = false;
+  private readonly visionPoint = new Phaser.Math.Vector2();
+  private readonly visionPostRender = (_renderer: unknown, time: number) => this.drawVision(time);
   private initialMapTiles = new Set<number>();
   private lastMapStreamAt = 0;
   constructor(){super('Estate');}
@@ -734,10 +745,8 @@ class Estate extends Phaser.Scene {
       const wasAlive=this.previousAlive.get(local.id);
       if(wasAlive===true&&!local.alive)showEliminationCutscene();
       this.previousAlive.set(local.id,local.alive);
-      const samples=this.remoteSamples.get(local.id)||[];
-      samples.push({x:local.x,y:local.y,time:performance.now()});
-      if(samples.length>8)samples.shift();
-      this.remoteSamples.set(local.id,samples);
+      // Local snapshots are reconciliation targets, not delayed render samples.
+      serverMe.x=local.x;serverMe.y=local.y;
       let a=this.actors.get(local.id);
       if(!a){
         a=this.add.sprite(local.x,local.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
@@ -763,6 +772,8 @@ class Estate extends Phaser.Scene {
     if(!context)throw new Error('2D visibility overlay is unavailable.');
     this.visionContext=context;
     this.resizeVisionCanvas();
+    // Draw after Phaser has finalized this frame's camera follow/zoom matrix.
+    this.game.events.on(Phaser.Core.Events.POST_RENDER,this.visionPostRender);
   }
   private resizeVisionCanvas(){
     const canvas=this.visionCanvas;if(!canvas)return;
@@ -784,12 +795,8 @@ class Estate extends Phaser.Scene {
     const actor=this.actors.get(myId),originX=actor?.x??mePlayer.x,originY=actor?.y??mePlayer.y;
     const radius=!mePlayer.alive?430:latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
     const camera=this.cameras.main;
-    // Match Phaser's camera matrix, including its viewport-origin offset.
-    // Phaser's scroll values already account for the camera origin. Applying
-    // the origin offset a second time makes the fog boundary slide as the
-    // camera follows the player, especially at non-1x zoom.
-    const screenX=(worldX:number)=>camera.x+(worldX-camera.scrollX)*camera.zoomX;
-    const screenY=(worldY:number)=>camera.y+(worldY-camera.scrollY)*camera.zoomY;
+    // Project with the exact transform Phaser used to render this frame.
+    const cameraMatrix=(camera as unknown as {matrix:{transformPoint(x:number,y:number,point:Phaser.Math.Vector2):Phaser.Math.Vector2}}).matrix;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.72)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();
     const rayCount=512,rayStep=3;
@@ -800,7 +807,12 @@ class Estate extends Phaser.Scene {
         if(this.solid(originX+dx*distance,originY+dy*distance)){blockedAt=distance;clear=distance-rayStep;break;}
       }
       if(blockedAt<radius){let low=clear,high=blockedAt;for(let refine=0;refine<5;refine++){const mid=(low+high)*.5;if(this.solid(originX+dx*mid,originY+dy*mid))high=mid;else low=mid;}clear=low;}
-      const rayX=screenX(originX+dx*clear),rayY=screenY(originY+dy*clear);
+      const projected=cameraMatrix.transformPoint(
+        originX+dx*clear-camera.scrollX,
+        originY+dy*clear-camera.scrollY,
+        this.visionPoint,
+      );
+      const rayX=projected.x,rayY=projected.y;
       if(i===0)ctx.moveTo(rayX,rayY);else ctx.lineTo(rayX,rayY);
     }
     ctx.closePath();ctx.fill();ctx.restore();
@@ -809,9 +821,11 @@ class Estate extends Phaser.Scene {
     if(!this.ready)return;
     if(time-this.lastMapStreamAt>=200){this.lastMapStreamAt=time;this.streamMapTiles();}
     const now=performance.now();
+    // Remote actors use buffered snapshots. Never delay the local actor.
     for(const [id,samples] of this.remoteSamples){
+      if(id===myId)continue;
       const actor=this.actors.get(id);if(!actor||!samples.length)continue;
-      const renderAt=now-(id===myId?110:120);
+      const renderAt=now-120;
       while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){
@@ -819,52 +833,57 @@ class Estate extends Phaser.Scene {
         if(renderAt<=samples[0].time){left=samples[0];right=samples[1];bracketed=true;}
         else for(let i=1;i<samples.length;i++){if(samples[i].time>=renderAt){left=samples[i-1];right=samples[i];bracketed=true;break;}}
         if(bracketed){const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
-        else{
-          left=samples[samples.length-2];right=samples[samples.length-1];
-          // Never extrapolate beyond an authoritative server sample. Prediction
-          // overshoots collision stops and is then corrected by the next
-          // snapshot, which is the source of the visible recoil/throwing.
-          x=right.x;y=right.y;
-        }
       }
       actor.setPosition(x,y);
-      if(id===myId){me.x=x;me.y=y;}
       const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;
       const player=latest?.players.find(p=>p.id===id);
       if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}
       else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
-    if(!latest||latest.phase!=='PLAYING'){this.stopMovement();this.drawVision(time);return;}
-    const local=latest.players.find(p=>p.id===myId);if(!local){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
-    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();this.drawVision(time);return;}
+    if(!latest||latest.phase!=='PLAYING'){this.stopMovement();return;}
+    const local=latest.players.find(p=>p.id===myId);if(!local){joystick={x:0,y:0};this.stopMovement();return;}
+    if(document.querySelector('#meet')?.childElementCount){joystick={x:0,y:0};this.stopMovement();return;}
     const k=this.keys;let x=joystick.x,y=joystick.y;
     if(k.W.isDown||this.cursors.up.isDown)y=-1;if(k.S.isDown||this.cursors.down.isDown)y=1;if(k.A.isDown||this.cursors.left.isDown)x=-1;if(k.D.isDown||this.cursors.right.isDown)x=1;
-    const magnitude=Math.hypot(x,y);
-    if(magnitude<.08){x=0;y=0;}
-    if(x||y){
+    let magnitude=Math.hypot(x,y);
+    if(magnitude<.08){x=0;y=0;magnitude=0;}
+    else if(magnitude>1){x/=magnitude;y/=magnitude;magnitude=1;}
+    const actor=this.actors.get(myId);
+    if(magnitude>0){
       if(!this.moving){this.moving=true;this.moveSequence++;}
+      // Same speed, analog scaling and collision sweep as server authority.
+      const dt=Phaser.Math.Clamp(delta,0,60)/1000,speed=local.alive?370:250;
+      const travel=speed*dt*Math.min(1,magnitude);
+      const predicted=this.moveWithCollision(me.x,me.y,x/magnitude*travel,y/magnitude*travel);
+      me.x=predicted.x;me.y=predicted.y;
+      if(actor)actor.setPosition(me.x,me.y);
+      if(local.alive&&actor){
+        const walkKey=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';
+        actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);
+        if(actor.anims.currentAnim?.key!==walkKey||!actor.anims.isPlaying)actor.play(walkKey,true);
+      }
       if(time-this.lastEmit>=50){
         const epoch=this.moveSequence,request=++this.movementRequestSequence;
         socket.emit('move',{x,y,epoch,requestId:request},(ack?:{ok?:boolean;x?:number;y?:number})=>{
           if(epoch!==this.moveSequence||!this.moving||request<=this.lastAppliedMovementAck||!ack?.ok||!Number.isFinite(ack.x)||!Number.isFinite(ack.y))return;
-          this.lastAppliedMovementAck=request;
-          serverMe.x=ack.x!;serverMe.y=ack.y!;
+          this.lastAppliedMovementAck=request;serverMe.x=ack.x!;serverMe.y=ack.y!;
         });
         this.lastEmit=time;
       }
     }else{
       if(this.moving)this.stopMovement();
-      const actor=this.actors.get(myId);
-      if(actor&&local.alive){if(actor.anims.isPlaying)actor.stop();actor.setTexture('walk_down_1');}
+      // Only reconcile while idle, with elapsed-time smoothing.
+      const correction=1-Math.exp(-Math.max(0,delta)/80);
+      me.x+=(serverMe.x-me.x)*correction;me.y+=(serverMe.y-me.y)*correction;
+      if(actor){actor.setPosition(me.x,me.y);if(local.alive){if(actor.anims.isPlaying)actor.stop();actor.setTexture('walk_down_1');}}
     }
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
     const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.corpseX,p.corpseY,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.corpseX,p.corpseY).setDepth(9);}
     for(const [id,corpse] of this.corpseArt)if(!unreported.has(id)){corpse.destroy();this.corpseArt.delete(id);}
     this.debugGraphics.clear();if(k.C.isDown){const v=this.cameras.main.worldView;this.debugGraphics.fillStyle(0xffffff,.35);for(let yy=Math.floor(v.y/16)*16;yy<v.y+v.height;yy+=16)for(let xx=Math.floor(v.x/16)*16;xx<v.x+v.width;xx+=16)if(this.solid(xx+8,yy+8))this.debugGraphics.fillRect(xx,yy,16,16);}
-    this.drawVision(time);
   }
-  shutdown(){this.stopMovement();this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
+  shutdown(){this.stopMovement();this.game.events.off(Phaser.Core.Events.POST_RENDER,this.visionPostRender);this.visionCanvas?.remove();this.visionCanvas=undefined;this.visionContext=undefined;for(const [index,tile] of this.mapTiles){tile.destroy();this.textures.remove(`map${index+1}`);}this.mapTiles.clear();sceneRef=undefined;}
 }
 
 socket.on('connect',()=>{if(roomCode&&resumeKey)resumeSession();});
