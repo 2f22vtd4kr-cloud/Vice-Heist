@@ -91,7 +91,7 @@ export class EstateAudio {
     gain.gain.value=0;source.connect(filter);filter.connect(gain);gain.connect(this.ambience);source.start();
     let osc:OscillatorNode|undefined,hum:GainNode|undefined;
     if(zone.kind==='fluorescent'||zone.kind==='server'||zone.kind==='generator'||zone.kind==='lounge'){
-      osc=ctx.createOscillator();hum=ctx.createGain();osc.type='sine';osc.frequency.value=zone.frequency;hum.gain.value=0;osc.connect(hum);hum.connect(this.ambience);osc.start();
+      osc=ctx.createOscillator();hum=ctx.createGain();osc.type='sine';osc.frequency.value=zone.frequency;hum.gain.value=0;osc.connect(hum);hum.connect(this.ambience!);osc.start();
     }
     return {source,filter,gain,osc,hum};
   }
