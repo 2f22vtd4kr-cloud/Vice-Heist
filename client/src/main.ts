@@ -442,7 +442,7 @@ function openTask(task: Task) {
   const image=art[task.id]||'task_garage_scan';
   let interval=0,timeout=0,holdStarted=0,progress=0;
   const cleanup=()=>{if(interval)window.clearInterval(interval);if(timeout)window.clearTimeout(timeout);};
-  const finish=(answer:string|number)=>{cleanup();socket.emit('use',{taskId:task.id,answer});m.innerHTML='';tone(760);haptic();};
+  const finish=(answer:string|number)=>{socket.emit('use',{taskId:task.id,answer},(result?:{ok:boolean;error?:string})=>{if(result?.ok){cleanup();m.innerHTML='';tone(760);haptic();}else status(result?.error||'The server could not verify this operation. Try again.');});};
   const status=(value:string)=>{const el=m.querySelector<HTMLElement>('#task-status');if(el)el.textContent=value;};
   let puzzle='';
   if(task.id==='vault')puzzle='<p>Enter the four-number combination in order: <b>2 · 7 · 4 · 1</b></p><div class="puzzle-pad">'+Array.from({length:10},(_,n)=>'<button data-digit="'+n+'">'+n+'</button>').join('')+'</div><p id="vault-entry">— — — —</p>';
