@@ -12,7 +12,7 @@
     "prestart": "npm run prepare:assets && npm run prepare:splash && npm run prepare:menu && npm run prepare:masks && npm run validate:assets",
     "typecheck": "tsc -p client/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
     "validate:assets": "node scripts/validate-assets.mjs",
-    "test": "npm run build:server && node scripts/test-socket-ack-guard.mjs && node scripts/test-movement-stop.mjs && node scripts/test-ghost-movement.mjs && node scripts/test-round-grace-period.mjs && node scripts/test-dock-task-reachability.mjs && node scripts/test-bot-navigation.mjs && node scripts/test-task-validation.mjs && node scripts/test-vent-network.mjs",
+    "test": "npm run build:server && node scripts/test-socket-ack-guard.mjs && node scripts/test-movement-stop.mjs && node scripts/test-ghost-movement.mjs && node scripts/test-round-grace-period.mjs && node scripts/test-dock-task-reachability.mjs && node scripts/test-bot-navigation.mjs && node scripts/test-task-validation.mjs && node scripts/test-vent-network.mjs && node scripts/test-audio-assets.mjs",
     "prepare:assets": "node scripts/prepare-art-assets.mjs",
     "prepare:splash": "node scripts/prepare-splash-assets.mjs",
     "prepare:menu": "node scripts/prepare-menu-assets.mjs",
