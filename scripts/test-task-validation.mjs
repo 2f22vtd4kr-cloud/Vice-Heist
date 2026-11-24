@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { io } from 'socket.io-client';
@@ -35,6 +36,8 @@ try{
   assert.equal(Object.keys(tasks).length,8,'all eight task challenges should be present');
   assert.match(tasks.vault.challenge,/^[1-9][0-9]{3}$/,'vault challenge should be a fresh four-digit code');
   assert.deepEqual(tasks.server.challenge.split(',').sort(),['blue','gold','red','teal'],'server rack should contain each wire once');
+  const serverSource=readFileSync('server/src/index.ts','utf8');
+  assert.match(serverSource,/server:\(\)=>answer===challenge/,'server wire validation must accept this round\'s randomized wire order, not a hard-coded sequence');
   assert.match(tasks.generator.challenge,/^[01]{4}$/,'generator challenge should be a four-bit pattern');
   assert.notEqual(tasks.generator.challenge,'0000','generator pattern should not be all off');
   assert.notEqual(tasks.generator.challenge,'1111','generator pattern should not be all on');
