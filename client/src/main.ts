@@ -55,6 +55,15 @@ function creatureColumn(color: string): number { return CREATURE_COLOR_COLUMNS[c
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
 function show(html: string) { overlay.innerHTML = html; }
 const artUrl = (id: string) => `/assets/vice-heist/${id}.png`;
+// Floor material is assigned by the estate's authored sector layout rather than
+// arbitrary world-coordinate thresholds. These sectors correspond to the map
+// atlas: helipad, lounge, suite, pool, garage, server room, generator bay, dock.
+function floorSurfaceAt(x:number,y:number): 'carpet'|'wood'|'tile'|'metal' {
+  const col=Math.max(0,Math.min(3,Math.floor(x/2048)));
+  const row=Math.max(0,Math.min(1,Math.floor(y/2048)));
+  const sector=row*4+col;
+  return (['tile','wood','carpet','tile','metal','metal','metal','wood'] as const)[sector];
+}
 function setButtonArt(id:string,asset:string){const image=document.querySelector<HTMLImageElement>(`#${id} .action-art`);if(image)image.src=artUrl(asset);}
 
 const splashCrew = [
@@ -879,7 +888,7 @@ class Estate extends Phaser.Scene {
     const actor=this.actors.get(myId);
     if(magnitude>0){
       gameAudio.updateWorld(me.x,me.y);
-      const surface: 'carpet'|'wood'|'tile'|'metal' = me.y>2500&&me.x<2048?'metal':me.y>2500&&me.x<4096?'metal':me.x>2048&&me.x<4096&&me.y<2048?'wood':me.x>4096&&me.y<2048?'tile':'tile';
+      const surface=floorSurfaceAt(me.x,me.y);
       gameAudio.step(time,surface);
       if(!this.moving){this.moving=true;this.moveSequence++;}
       // Same speed, analog scaling and collision sweep as server authority.
@@ -908,6 +917,7 @@ class Estate extends Phaser.Scene {
       me.x+=(serverMe.x-me.x)*correction;me.y+=(serverMe.y-me.y)*correction;
       if(actor){actor.setPosition(me.x,me.y);if(local.alive){if(actor.anims.isPlaying)actor.stop();actor.setTexture('walk_down_1');}}
     }
+    for(const [id,actor] of this.actors)this.nameLabels.get(id)?.setPosition(actor.x,actor.y-48);
     this.taskDots.clear();const openTasks=new Set<string>();for(const t of latest.tasks)if(!t.done){openTasks.add(t.id);let glow=this.taskGlows.get(t.id);if(!glow){glow=this.add.image(t.x,t.y,'task_console_glow').setScale(.2).setAlpha(.5).setDepth(3);this.taskGlows.set(t.id,glow);}else glow.setPosition(t.x,t.y);}
     for(const [id,glow] of this.taskGlows)if(!openTasks.has(id)){glow.destroy();this.taskGlows.delete(id);}
     const unreported=new Set<string>();for(const p of latest.players)if(!p.alive&&!p.reported){unreported.add(p.id);let corpse=this.corpseArt.get(p.id);if(!corpse){corpse=this.add.image(p.corpseX,p.corpseY,'corpse_chalk_outline').setScale(.19).setAlpha(.9).setDepth(9);this.corpseArt.set(p.id,corpse);}else corpse.setPosition(p.corpseX,p.corpseY).setDepth(9);}
