@@ -80,12 +80,12 @@ const DOOR_GATE_CANDIDATES = [
 function resolveDoorGate(candidate:typeof DOOR_GATE_CANDIDATES[number]):DoorGate|undefined {
   const dx=candidate.x2-candidate.x1,dy=candidate.y2-candidate.y1,length=Math.hypot(dx,dy);
   if(length<100)return undefined;
-  const nx=-dy/length,ny=dx/length,mx=(candidate.x1+candidate.x2)/2,my=(candidate.y1+candidate.y2)/2;
+  const tx=dx/length,ty=dy/length,nx=-ty,ny=tx,mx=(candidate.x1+candidate.x2)/2,my=(candidate.y1+candidate.y2)/2;
   // The center must be traversable and the ends must meet solid wall, not
   // terminate in open floor. A small tolerance handles antialiased masks.
   if(solid(mx,my))return undefined;
-  const jambA=solid(candidate.x1+nx*22,candidate.y1+ny*22)||solid(candidate.x1-nx*22,candidate.y1-ny*22);
-  const jambB=solid(candidate.x2+nx*22,candidate.y2+ny*22)||solid(candidate.x2-nx*22,candidate.y2-ny*22);
+  const jambA=solid(candidate.x1+tx*22,candidate.y1+ty*22)||solid(candidate.x1-tx*22,candidate.y1-ty*22);
+  const jambB=solid(candidate.x2+tx*22,candidate.y2+ty*22)||solid(candidate.x2-tx*22,candidate.y2-ty*22);
   if(!jambA||!jambB)return undefined;
   return {...candidate,nx,ny,length};
 }
@@ -154,8 +154,8 @@ function advancePlayer(p: Player, now: number, doorsActive=false) {
   for (let i = 0; i < steps; i++) {
     const nextX = p.x + stepX, nextY = p.y + stepY;
     const leavingDoor=doorsActive&&DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g));
-    if (!blocked(nextX,p.y) && (!doorBlocked(nextX,p.y,doorsActive)||leavingDoor)) p.x = nextX;
-    if (!blocked(p.x,nextY) && (!doorBlocked(p.x,nextY,doorsActive)||leavingDoor)) p.y = nextY;
+    if (!blocked(nextX,p.y) && (!blockedWithDoors(nextX,p.y,18,doorsActive)||leavingDoor)) p.x = nextX;
+    if (!blocked(p.x,nextY) && (!blockedWithDoors(p.x,nextY,18,doorsActive)||leavingDoor)) p.y = nextY;
   }
 }
 const rooms = new Map<string, Room>();
