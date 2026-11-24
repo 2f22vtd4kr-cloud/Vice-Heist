@@ -54,6 +54,7 @@ let phaserSceneReady = false;
 let phaserLoadError = '';
 let menuFrame: HTMLIFrameElement | null = null;
 let menuFrameReady = false;
+let menuPreloadSettled = false;
 let menuPreloadPromise: Promise<void> | null = null;
 
 const haptic = () => { try { tg?.HapticFeedback?.impactOccurred('light'); } catch { /* optional Telegram feature */ } };
@@ -85,9 +86,9 @@ const splashCrew = [
 const splashTips = ['Casing the estate…', 'Bribing the valet…', 'Looping the security cameras…', 'Cracking the vault…', 'Fuelling the getaway boat…', 'Checking who’s wearing a wire…'];
 
 function updateSplashProgress() {
-  // The bar tracks only work required to enter a playable world. The optional
-  // illustrated menu is deliberately excluded so it cannot stall startup.
-  const progress = Math.min(99, Math.floor((phaserLoadProgress * .68 + splashAssetProgress * .12 + mapLoadProgress * .15 + (phaserSceneReady ? .05 : 0)) * 100));
+  // The bar tracks essential game assets, splash art, initial map sectors, scene setup,
+  // and completion (or fallback) of the illustrated menu preload.
+  const progress = Math.min(99, Math.floor((phaserLoadProgress * .65 + splashAssetProgress * .12 + mapLoadProgress * .15 + (phaserSceneReady ? .05 : 0) + (menuPreloadSettled ? .03 : 0)) * 100));
   const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
   const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
   const tip = document.querySelector<HTMLElement>('#vh-splash-tip');
@@ -96,7 +97,7 @@ function updateSplashProgress() {
   if (tip) tip.textContent = phaserLoadProgress < 1 ? 'Loading essential game assets…' :
     splashAssetProgress < 1 ? 'Preparing the crew…' :
     mapLoadProgress < 1 ? 'Loading nearby estate sectors…' :
-    !phaserSceneReady ? 'Finalising the game world…' : 'All systems ready.';
+    !phaserSceneReady ? 'Finalising the game world…' : !menuPreloadSettled ? 'Preparing the main menu…' : 'All systems ready.';
 }
 
 function preloadMenuFrame(): Promise<void> {
@@ -110,16 +111,18 @@ function preloadMenuFrame(): Promise<void> {
     frame.loading = 'eager';
     menuFrame = frame;
     let settled = false;
-    // The illustrated menu is an optional post-readiness enhancement. Its
-    // load never competes with essential Phaser assets or blocks splash readiness.
+    // The illustrated menu is preloaded while the splash remains visible. A
+    // bounded failure resolves to the built-in accessible menu fallback.
     const deadline = Date.now() + 20_000;
     let diagnosticTimer = 0;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(diagnosticTimer);
+      menuPreloadSettled = true;
       if (error) { menuFrameReady = false; reject(error); }
       else { menuFrameReady = true; resolve(); }
+      updateSplashProgress();
     };
     const inspect = () => {
       if (settled) return;
@@ -179,15 +182,9 @@ async function showSplash() {
     button.classList.add('vh-phase-entering');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<strong class="vh-entering-title">You’re in.</strong><span class="vh-entering-copy">The crew is assembling…</span>';
-    window.setTimeout(async () => {
-      // The splash is already ready. If the user enters immediately, allow
-      // the optional illustrated menu a chance to finish without blocking
-      // game startup itself; the bounded preload falls back cleanly on error.
-      if (menuPreloadPromise && !menuFrameReady) {
-        const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
-        if (panel) panel.innerHTML = '<strong class="vh-entering-title">Preparing the main menu…</strong>';
-        await menuPreloadPromise;
-      }
+    window.setTimeout(() => {
+      // The menu preload has already settled before the splash enables Start.
+      // If it failed, menu() opens the built-in accessible fallback immediately.
       splashDismissed = true;
       const next = pendingSnapshot;
       pendingSnapshot = null;
@@ -203,6 +200,15 @@ async function showSplash() {
     }, 420);
   };
   button.addEventListener('click', enterMenu);
+
+  // Load the illustrated menu under the splash, not after Start is enabled.
+  // If the iframe cannot become ready within its deadline, resolve to the built-in menu.
+  menuPreloadPromise = preloadMenuFrame().catch(error => {
+    menuFrameReady = false;
+    menuPreloadSettled = true;
+    console.warn('[Vice Heist] Illustrated menu preload unavailable; using the accessible fallback:', error);
+    updateSplashProgress();
+  });
 
   updateSplashProgress();
   const paths = ['/splash/img/estate.jpg'].concat(splashCrew.map(c => '/splash/img/crew/' + c.sprite + '.png'));
@@ -251,16 +257,10 @@ async function showSplash() {
   });
 
   try {
-    await Promise.all([splashImages, gameReady]);
+    await Promise.all([splashImages, gameReady, menuPreloadPromise]);
     if (phaserLoadError) throw new Error(phaserLoadError);
     splashReady = true;
     updateSplashProgress();
-    // Begin the illustrated menu only after the essential scene and splash
-    // art are ready. This work is intentionally not part of the startup gate.
-    menuPreloadPromise = preloadMenuFrame().catch(error => {
-      menuFrameReady = false;
-      console.warn('[Vice Heist] Illustrated menu preload unavailable; using the accessible fallback:', error);
-    });
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
     const pct = document.querySelector<HTMLElement>('#vh-splash-pct');
     const tip = document.querySelector<HTMLElement>('#vh-splash-tip');

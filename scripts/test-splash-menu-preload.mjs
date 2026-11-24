@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const source=readFileSync('client/src/main.ts','utf8');
+const showSplash=source.indexOf('async function showSplash()');
+assert.ok(showSplash>=0,'splash entrypoint should exist');
+const preload=source.indexOf('menuPreloadPromise = preloadMenuFrame()',showSplash);
+const gate=source.indexOf('await Promise.all([splashImages, gameReady, menuPreloadPromise])',showSplash);
+assert.ok(preload>showSplash&&gate>preload,'illustrated menu must begin preloading before splash readiness is declared');
+assert.match(source,/menuPreloadSettled\s*\?\s*\.03\s*:\s*0/,'splash progress must include menu preload completion');
+assert.doesNotMatch(source,/await menuPreloadPromise/,'Start must not wait for menu loading after the splash is dismissed');
+assert.match(source,/preloadMenuFrame\(\)\.catch\(error\s*=>\s*\{[\s\S]*?menuPreloadSettled\s*=\s*true/,'menu failure must settle into the built-in fallback');
+console.log('Splash/menu preload regression passed: menu readiness is part of the splash gate and Start does not wait on late menu loading.');
