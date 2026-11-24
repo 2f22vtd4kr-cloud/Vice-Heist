@@ -143,7 +143,7 @@ export class EstateAudio {
       loop.hum?.gain.setTargetAtTime(level*.22,ctx.currentTime,.32);
     }
     const musicDistance=Math.hypot(2822-x,504-y);
-    const musicAttenuation=Math.pow(Math.max(0,1-musicDistance/1750),1.45);
+    const musicAttenuation=Math.pow(Math.max(0,1-musicDistance/2600),1.35);
     if(this.musicGain)this.musicGain.gain.setTargetAtTime(this.musicVolume*musicAttenuation,ctx.currentTime,.38);
     if(this.musicFilter)this.musicFilter.frequency.setTargetAtTime(550+17_500*musicAttenuation,ctx.currentTime,.42);
     this.lastZone=chosen.name;
