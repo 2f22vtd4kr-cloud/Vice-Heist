@@ -531,7 +531,7 @@ function renderState(s: Snapshot) {
     const beforeLocal=previousSnapshot.players.find(p=>p.id===myId),afterLocal=s.players.find(p=>p.id===myId);
     if(previousSnapshot.phase!=='PLAYING'&&s.phase==='PLAYING')gameAudio.play('roundStart');
     if(beforeLocal?.alive&&!afterLocal?.alive)gameAudio.play('death');
-    if(s.selfRole==='MOLE'&&previousSnapshot.players.some(p=>p.id!==myId&&p.alive)&&s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return p.id!==myId&&old?.alive&&!p.alive;}))gameAudio.play('kill');
+    if(previousSnapshot.phase==='PLAYING'&&s.phase==='PLAYING'&&s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return p.id!==myId&&old?.alive&&!p.alive;}))gameAudio.play('kill');
     if(s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return old&&!old.reported&&p.reported;}))gameAudio.play('bodyFound');
     if(s.tasks.some(t=>{const old=previousSnapshot.tasks.find(q=>q.id===t.id);return old&&!old.done&&t.done;}))gameAudio.play('task');
     if(previousSnapshot.phase!=='MEETING'&&s.phase==='MEETING')gameAudio.play('meeting');
@@ -567,6 +567,7 @@ function renderState(s: Snapshot) {
 
 class Estate extends Phaser.Scene {
   private actors = new Map<string, Phaser.GameObjects.Sprite>();
+  private lastKillAt = 0;
   private nameLabels = new Map<string, Phaser.GameObjects.Text>();
   private remoteSamples = new Map<string,{x:number;y:number;time:number}[]>();
   private keys!: any;
@@ -790,11 +791,12 @@ class Estate extends Phaser.Scene {
       a.setAlpha(local.alive?1:.92).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
       if(!local.alive&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);
     }
-    for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);if(p.id!==myId&&wasAlive===true&&!p.alive&&s.selfRole==='MOLE'&&local?.alive){const killer=this.actors.get(myId);if(killer)killer.play('vh-kill-lunge',true);}this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);this.nameLabels.set(p.id,this.add.text(p.x,p.y-48,p.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));}if(a){
+    for(const p of s.players){this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);this.nameLabels.set(p.id,this.add.text(p.x,p.y-48,p.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>8)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
       a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
+    if(s.lastKill&&s.lastKill.at>this.lastKillAt){this.lastKillAt=s.lastKill.at;this.actors.get(s.lastKill.killerId)?.play('vh-kill-lunge',true);}
     for(const [id,a] of this.actors){const label=this.nameLabels.get(id);if(label){label.setText(s.players.find(p=>p.id===id)?.name||'');label.setPosition(a.x,a.y-48);}}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.nameLabels.get(id)?.destroy();this.nameLabels.delete(id);this.remoteSamples.delete(id);}
   }
