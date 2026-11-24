@@ -350,11 +350,11 @@ function botsTick(r: Room, now: number) {
         // the human from across the map. It only commits to a hunt at close
         // range, with a low per-tick decision chance; an active short hunt is
         // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<3_500&&current.distance<650;
-        const commit=retain||!!humanTarget&&humanTarget.distance<620&&random()<0.015;
+        const retain=!!current&&!!previous&&now-previous.selectedAt<5_000&&current.distance<1_200;
+        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&random()<0.04;
         if(commit&&humanTarget){
           if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,260,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+          moveBotToward(bot,humanTarget.candidate,310,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
