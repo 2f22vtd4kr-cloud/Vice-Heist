@@ -760,12 +760,12 @@ class Estate extends Phaser.Scene {
   private drawVision(time:number){
     const canvas=this.visionCanvas,ctx=this.visionContext;if(!canvas||!ctx)return;
     // Keep visibility work below the main 60fps render budget.
-    if(time-this.lastVision<50)return;this.lastVision=time;
+    if(time-this.lastVision<33)return;this.lastVision=time;
     const width=canvas.clientWidth,height=canvas.clientHeight;
     ctx.clearRect(0,0,width,height);
     if(!latest||latest.phase!=='PLAYING'||this.keys?.C?.isDown)return;
     const mePlayer=latest.players.find(p=>p.id===myId);if(!mePlayer)return;
-    const actor=this.actors.get(myId),originX=actor?.x??me.x,originY=actor?.y??me.y;
+    const actor=this.actors.get(myId),originX=actor?.x??mePlayer.x,originY=actor?.y??mePlayer.y;
     const radius=!mePlayer.alive?430:latest.selfRole==='MOLE'?900:(latest.sabotage&&latest.sabotage.endsAt>Date.now()?310:690);
     const camera=this.cameras.main;
     // Match Phaser's camera matrix, including its viewport-origin offset.
@@ -776,7 +776,7 @@ class Estate extends Phaser.Scene {
     const screenY=(worldY:number)=>camera.y+(worldY-camera.scrollY)*camera.zoomY;
     ctx.save();ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,7,13,.72)';ctx.fillRect(0,0,width,height);
     ctx.globalCompositeOperation='destination-out';ctx.beginPath();
-    const rayCount=384,rayStep=6;
+    const rayCount=512,rayStep=3;
     for(let i=0;i<rayCount;i++){
       const angle=i*Math.PI*2/rayCount,dx=Math.cos(angle),dy=Math.sin(angle);
       let clear=radius,blockedAt=radius;
@@ -795,7 +795,7 @@ class Estate extends Phaser.Scene {
     const now=performance.now();
     for(const [id,samples] of this.remoteSamples){
       const actor=this.actors.get(id);if(!actor||!samples.length)continue;
-      const renderAt=now-(id===myId?50:100);
+      const renderAt=now-(id===myId?110:120);
       while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
       if(samples.length>=2){
@@ -805,9 +805,10 @@ class Estate extends Phaser.Scene {
         if(bracketed){const span=Math.max(1,right.time-left.time),t=Phaser.Math.Clamp((renderAt-left.time)/span,0,1);x=Phaser.Math.Linear(left.x,right.x,t);y=Phaser.Math.Linear(left.y,right.y,t);}
         else{
           left=samples[samples.length-2];right=samples[samples.length-1];
-          const span=Math.max(1,right.time-left.time),ahead=Math.min(id===myId?55:120,Math.max(0,renderAt-right.time));
-          const vx=(right.x-left.x)/span,vy=(right.y-left.y)/span,speed=Math.hypot(vx,vy)*1000,scale=speed>0?Math.min(1,370/speed):0;
-          x=right.x+vx*ahead*scale;y=right.y+vy*ahead*scale;
+          // Never extrapolate beyond an authoritative server sample. Prediction
+          // overshoots collision stops and is then corrected by the next
+          // snapshot, which is the source of the visible recoil/throwing.
+          x=right.x;y=right.y;
         }
       }
       actor.setPosition(x,y);

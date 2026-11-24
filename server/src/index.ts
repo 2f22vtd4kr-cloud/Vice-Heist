@@ -295,21 +295,24 @@ function botsTick(r: Room, now: number) {
           const nearbyCrew=alive.filter(other=>other.id!==candidate.id&&other.role==='CREW'&&Math.hypot(other.x-candidate.x,other.y-candidate.y)<320).length;
           const visible=hasLineOfSight(bot,candidate);
           const previous=botHuntTargets.get(bot.id);
-          const repeatPenalty=previous?.targetId===candidate.id&&now-previous.selectedAt<9000?420:0;
-          const playerBias=candidate.bot?600:0;
+          const repeatPenalty=0; // Keep the selected human target instead of oscillating between crew bots.
+          const playerBias=candidate.bot?900:-450;
           return {candidate,distance,visible,score:distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+playerBias};
         }).sort((a,b)=>a.score-b.score);
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
+        const humanTarget=crew.find(entry=>!entry.candidate.bot);
         const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1150);
         const retain=!!current&&!!previous&&now-previous.selectedAt<5500&&current.distance<1350;
-        const selected=retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]);
+        // In a player-vs-NPC match, a killer bot must not spend its hunt
+        // repeatedly changing between other NPCs while the human is alive.
+        const selected=humanTarget|| (retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]));
         const target=selected?.candidate;
         if(target){
           if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
           // Follow the selected crew member even when walls block line of sight.
           // Collision-aware pathfinding handles obstacles; line of sight is required only for elimination.
-          moveBotToward(bot,target,296,dtSeconds,'hunt:'+target.id,now);
+          moveBotToward(bot,target,370,dtSeconds,'hunt:'+target.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
@@ -322,7 +325,7 @@ function botsTick(r: Room, now: number) {
             // Preserve wall occlusion at normal attack range. At true sprite
             // overlap, tolerate a one-cell mask edge discrepancy so the NPC
             // cannot orbit a player it has physically reached.
-            return distance<125&&(hasLineOfSight(bot,p)||distance<48);
+            return distance<125&&(hasLineOfSight(bot,p)||distance<72);
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
