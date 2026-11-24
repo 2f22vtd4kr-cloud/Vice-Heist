@@ -153,8 +153,8 @@ function advancePlayer(p: Player, now: number, doorsActive=false) {
   const stepX = dx / steps, stepY = dy / steps;
   for (let i = 0; i < steps; i++) {
     const nextX = p.x + stepX, nextY = p.y + stepY;
-    if (!blocked(nextX, p.y) && !doorBlocked(nextX,p.y,doorsActive)) p.x = nextX;
-    if (!blocked(p.x, nextY) && !doorBlocked(p.x,nextY,doorsActive)) p.y = nextY;
+    if (!blockedWithDoors(nextX,p.y,18,doorsActive) || doorsActive && DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g))) p.x = nextX;
+    if (!blockedWithDoors(p.x,nextY,18,doorsActive) || doorsActive && DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g))) p.y = nextY;
   }
 }
 const rooms = new Map<string, Room>();
@@ -250,7 +250,7 @@ const botNeighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as 
 function cellCenter(index:number){return{x:(index%BOT_COLS+.5)*BOT_CELL,y:(Math.floor(index/BOT_COLS)+.5)*BOT_CELL};}
 function cellAt(x:number,y:number){return Math.max(0,Math.min(BOT_ROWS-1,Math.floor(y/BOT_CELL)))*BOT_COLS+Math.max(0,Math.min(BOT_COLS-1,Math.floor(x/BOT_CELL)));}
 function nearestWalkableCell(index:number):number{
-  const origin=cellCenter(index);if(!blocked(origin.x,origin.y,18))return index;
+  const origin=cellCenter(index);if(!blockedWithDoors(origin.x,origin.y,18,activeDoorsForRoom))return index;
   for(let radius=1;radius<=12;radius++)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
     if(Math.max(Math.abs(dx),Math.abs(dy))!==radius)continue;
     const x=index%BOT_COLS+dx,y=Math.floor(index/BOT_COLS)+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
@@ -415,6 +415,7 @@ async function botReply(r: Room, sender: Player, text: string) {
   }
 }
 function botsTick(r: Room, now: number) {
+  activeDoorsForRoom=!!r.sabotage&&r.sabotage.kind==='doors'&&r.sabotage.endsAt>now;
   const dtSeconds=Math.min(0.1,Math.max(0,(now-r.lastTick)/1000));
   if(r.phase==='PLAYING'){
     const alive=[...r.players.values()].filter(p=>p.alive);
