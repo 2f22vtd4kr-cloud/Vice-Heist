@@ -413,11 +413,15 @@ function botsTick(r: Room, now: number) {
         // the human from across the map. It only commits to a hunt at close
         // range, with a low per-tick decision chance; an active short hunt is
         // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<5_000&&current.distance<1_200;
-        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&random()<0.04;
+        const retain=!!current&&!!previous&&now-previous.selectedAt<8_000&&current.distance<1_800;
+        // If the human is already in the Mole's local area, commit instead of
+        // waiting for another low-probability roll. At medium range, use a
+        // stronger discretionary roll so a nearby human is not ignored for
+        // an entire solo round. The retained target prevents oscillation.
+        const commit=retain||!!humanTarget&&(humanTarget.distance<900||humanTarget.distance<1_600&&random()<0.12);
         if(commit&&humanTarget){
           if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,310,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+          moveBotToward(bot,humanTarget.candidate,350,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
