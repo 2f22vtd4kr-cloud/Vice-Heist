@@ -302,21 +302,19 @@ function botsTick(r: Room, now: number) {
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
         const humanTarget=crew.find(entry=>!entry.candidate.bot);
-        const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1150);
-        const retain=!!current&&!!previous&&now-previous.selectedAt<5500&&current.distance<1350;
-        // In a player-vs-NPC match, a killer bot must not spend its hunt
-        // repeatedly changing between other NPCs while the human is alive.
-        const selected=humanTarget|| (retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]));
-        const target=selected?.candidate;
-        if(target){
-          if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
-          // Follow the selected crew member even when walls block line of sight.
-          // Collision-aware pathfinding handles obstacles; line of sight is required only for elimination.
-          moveBotToward(bot,target,370,dtSeconds,'hunt:'+target.id,now);
+        // A Mole NPC should blend into the estate instead of beelining toward
+        // the human from across the map. It only commits to a hunt at close
+        // range, with a low per-tick decision chance; an active short hunt is
+        // retained briefly to avoid visibly twitching between targets.
+        const retain=!!current&&!!previous&&now-previous.selectedAt<3_500&&current.distance<650;
+        const commit=retain||!!humanTarget&&humanTarget.distance<620&&random()<0.015;
+        if(commit&&humanTarget){
+          if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
+          moveBotToward(bot,humanTarget.candidate,260,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
-          const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
-          moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
+          const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
+          moveBotToward(bot,patrol,218,dtSeconds,'patrol:'+patrol.id,now);
         }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate)
