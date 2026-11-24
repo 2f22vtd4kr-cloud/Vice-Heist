@@ -34,7 +34,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; botChatCooldowns: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -114,6 +114,7 @@ function advancePlayer(p: Player, now: number) {
 const rooms = new Map<string, Room>();
 const COLORS = ['#f45b5b','#54b7f2','#f0bd4b','#a98af5','#58c99b','#f18dc3','#e4e7ec','#e78b4e','#6dd4d0','#b6cf5b'];
 const BOT_NAMES = ['Rico','Mia','Jax','Nova','Ace','Skye','Luca','Zee'];
+const BOT_VOICES:Record<string,string>={Rico:'blunt and streetwise',Mia:'measured and analytical',Jax:'dryly funny but never unserious',Nova:'precise and observant',Ace:'confident but fair',Skye:'empathetic and cautious',Luca:'skeptical and evidence-driven',Zee:'curious and quick to notice details'};
 const TASKS: Omit<Task, 'done'>[] = [
   { id:'helipad', label:'Align beacon', x:780, y:300, zone:0 },
   { id:'bar', label:'Mix VIP cocktail', x:2822, y:504, zone:1 },
@@ -165,7 +166,7 @@ function snapshot(r: Room, viewer: string): Snapshot {
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map(),ventCooldownUntil:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map(),ventCooldownUntil:new Map(),botChatCooldowns:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -177,7 +178,7 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
-  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
+  r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => random() - 0.5);
@@ -319,7 +320,9 @@ function fallbackBotLine(bot: Player, text: string, r: Room): string {
   const directMention=msg.includes(bot.name.toLowerCase());
   if(directMention&&/suspect|mole|impostor|vote|kill|where|last seen/.test(msg))
     return pick([`I’m here. What room and time are you asking about?`,`Do not pin it on me without a timeline. Who actually saw that?`,`I can explain my route, but give me a specific sighting first.`]);
-  if(suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))
+  if(bot.role==='MOLE'&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))
+    return pick(['Let’s not turn proximity into proof. Who actually saw the attack?','That timeline is missing the route through the service corridor. Check it before voting.','We need a second witness. A fast accusation helps the wrong person.']);
+  if(bot.role==='CREW'&&suspect&&/suspect|who|vote|mole|impostor|body|report|kill/.test(msg))
     return pick([`${suspect.name} was close to the last incident. I want to hear their route.`,`The last report puts ${suspect.name} near the area. Does anyone have a second sighting?`,`I’m watching ${suspect.name}, but proximity alone is not proof.`]);
   if(/camera|security|feed/.test(msg))
     return pick(['The camera room might help with timing, but it won’t show every corridor.','Did anyone check the security feed before the lights went out?','A camera sighting needs a time stamp, not just a colour.']);
@@ -327,16 +330,26 @@ function fallbackBotLine(bot: Player, text: string, r: Room): string {
     return pick(['The dock is a long walk from the main rooms. Who was actually down there?','If someone used the boat route, we should compare who crossed the garage.','I have not got a clean sighting near the dock yet.']);
   if(/lights|sabotage|dark|power/.test(msg))
     return pick(['The outage gives someone cover. Stick to who was together just before it.','Power is back, but we still need to account for the corridor traffic.','Who was nearest the generator when the lights dropped?']);
-  if(/task|job|objective|where|location|last seen|saw/.test(msg))
+  if(/where|location|last seen/.test(msg)){
+    const sectors=['Helipad / security','VIP lounge','Master suite / vault','Pool / terrace','Garage','Server room','Generator bay','Speedboat dock'];
+    const col=Math.max(0,Math.min(3,Math.floor(bot.x/2048))),row=Math.max(0,Math.min(1,Math.floor(bot.y/2048)));
+    const sector=sectors[row*4+col];
+    const task=r.tasks.find(t=>t.id===botTaskAssignments.get(bot.id));
+    return pick([`I’m near ${sector}${task?', working on '+task.label.toLowerCase():''}. Who crossed this route?`,`I’m by ${sector}. I can compare routes if someone has a timestamp.`,`Last I checked, I was around ${sector}. What time are we talking about?`]);
+  }
+  if(/task|job|objective|saw/.test(msg))
     return pick(['I was checking an objective. Did anyone cross the hall while I was there?','I saw movement near the main corridor, but I could not make out who it was.','Which room are we comparing? The route matters more than the colour.']);
   if(/suspect|who|vote|mole|impostor/.test(msg))
     return pick(['Let’s compare who was near the last task.','I’m not voting without a reason. Who can confirm that?','The timing feels off. We should hear everyone first.']);
   if(/kill|body|dead|report/.test(msg))
     return pick(['That is serious. Who found them, and where?','We need a timeline before we vote.','Did anyone see someone leave the area?']);
-  return pick(['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.']);
+  const personal:Record<string,string>={Rico:'Keep it straight: what did you actually see?',Mia:'Let’s build a timeline before we decide.',Jax:'I would rather not vote on vibes alone.',Nova:'We need a timestamp and a location.',Ace:'I am listening, but I need something concrete.',Skye:'Let’s hear everyone before anyone gets blamed.',Luca:'Who can corroborate that?',Zee:'Wait—what happened just before that?'};
+  return personal[bot.name]||pick(['I hear you. What did you notice?','Can someone confirm that before we vote?','Let’s keep the timeline straight.']);
 }
 async function botReply(r: Room, sender: Player, text: string) {
-  const bots=[...r.players.values()].filter(p=>p.bot&&p.alive).slice(0,2);
+  const now=Date.now();
+  const bots=shuffled([...r.players.values()].filter(p=>p.bot&&p.alive&&(r.botChatCooldowns.get(p.id)||0)<=now)).slice(0,2);
+  for(const bot of bots)r.botChatCooldowns.set(bot.id,now+6_500);
   const allowGroq=!!sender.aiKey&&Date.now()-(sender.lastChatAt||0)>4500;if(allowGroq)sender.lastChatAt=Date.now();
   let conversationalContext=text;
   for (const bot of bots) {
@@ -344,7 +357,7 @@ async function botReply(r: Room, sender: Player, text: string) {
     if (sender.aiKey && allowGroq) {
       try {
         const roleContext = bot.role==='MOLE' ? 'You are secretly a Mole. Conceal it naturally.' : 'You are a Crew member. Help identify inconsistencies.';
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method:'POST',headers:{'Authorization':`Bearer ${sender.aiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(4500),body:JSON.stringify({model:'llama-3.3-70b-versatile',temperature:0.75,max_tokens:70,messages:[{role:'system',content:`You are ${bot.name}, a short-message NPC in a social deduction game. ${roleContext} Stay in character, be concise, do not claim facts not provided, do not reveal the hidden role.`},{role:'user',content:`Meeting context: ${r.meeting?.reason||'discussion'}. The conversation so far: ${conversationalContext}. Respond to the latest point in one natural sentence.`}]}) });
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method:'POST',headers:{'Authorization':`Bearer ${sender.aiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(4500),body:JSON.stringify({model:'llama-3.3-70b-versatile',temperature:0.75,max_tokens:70,messages:[{role:'system',content:`You are ${bot.name}, a short-message NPC in a social deduction game. Your speaking style is ${BOT_VOICES[bot.name]||'observant and concise'}. ${roleContext} Stay in character, be concise, do not claim facts not provided, do not reveal the hidden role.`},{role:'user',content:`Meeting context: ${r.meeting?.reason||'discussion'}. The conversation so far: ${conversationalContext}. Respond to the latest point in one natural sentence.`}]}) });
         if (response.ok) { const json=await response.json() as {choices?:{message?:{content?:string}}[]}; const candidate=json.choices?.[0]?.message?.content?.trim(); if(candidate) reply=candidate.slice(0,180); }
       } catch { /* deterministic fallback is intentionally retained */ }
     }
