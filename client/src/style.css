@@ -763,3 +763,6 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .cctv-interference span{color:#f4b0b6;font-size:10px}
 .cctv-feed.signal-lost .cctv-interference{display:flex}
 .cctv-feed.signal-lost>img{filter:grayscale(1) brightness(.2) contrast(1.35)}
+
+/* Door lockdown markers on the estate blueprint. */
+.blueprint-door{position:absolute;display:block;height:4px;min-width:8px;transform-origin:left center;background:#f5c46a;border:1px solid #2a1b12;border-radius:3px;z-index:4;pointer-events:auto;box-shadow:0 0 4px #000b}.blueprint-door.locked{background:#ff4d57;box-shadow:0 0 8px #ff263dcc}
