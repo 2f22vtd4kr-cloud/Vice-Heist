@@ -5,7 +5,7 @@ import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { readFileSync, existsSync } from 'node:fs';
-import type { Player, PublicPlayer, Task, Snapshot, Meeting } from '../../shared/types.js';
+import type { Player, PublicPlayer, Task, Snapshot, Meeting, Weapon } from '../../shared/types.js';
 
 const app = express();
 const http = createServer(app);
@@ -34,7 +34,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; botChatCooldowns: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; botChatCooldowns: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number; weapon?: Weapon };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -179,10 +179,12 @@ function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
   r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
   r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
-  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
+  list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';p.weapon=undefined;});
   const moleCount = list.length >= 8 ? 2 : 1;
   const shuffled = [...list].sort(() => random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
+  const weaponTypes:Weapon[]=['crowbar','pistol','knife'];
+  for(const p of list.filter(player=>player.role==='MOLE')){const hash=Array.from(p.id).reduce((value,char)=>((value*31+char.charCodeAt(0))>>>0),7);p.weapon=weaponTypes[hash%weaponTypes.length];}
   const availableTasks=[...r.tasks];
   list.filter(p=>p.bot&&p.role==='CREW').sort((a,b)=>a.id.localeCompare(b.id)).forEach(bot=>{
     const nearest=availableTasks.sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y)).shift();
@@ -452,7 +454,7 @@ function botsTick(r: Room, now: number) {
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
-          r.lastKill={killerId:bot.id,victimId:victim.id,at:now};victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
+          r.lastKill={killerId:bot.id,victimId:victim.id,at:now,weapon:bot.weapon||'crowbar'};victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420&&hasLineOfSight(witness,bot))r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
         }
@@ -586,7 +588,7 @@ io.on('connection', socket => {
     if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass server verification. Try again.'});return;}
     task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
   });
-  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420&&hasLineOfSight(witness,player))room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
+  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now(),weapon:player.weapon||'crowbar'};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420&&hasLineOfSight(witness,player))room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('vent:travel',(input?:{ventId?:unknown},ack?:(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>void)=>{
     const respond=(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};

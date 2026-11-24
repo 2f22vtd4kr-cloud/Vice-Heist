@@ -1,11 +1,11 @@
-type SoundEvent = 'roundStart'|'kill'|'death'|'bodyFound'|'crewWin'|'moleWin'|'task'|'meeting'|'sabotage'|'footstepCarpet'|'footstepWood'|'footstepTile'|'footstepMetal';
+type SoundEvent = 'roundStart'|'kill'|'death'|'bodyFound'|'crewWin'|'moleWin'|'task'|'meeting'|'sabotage'|'footstepCarpet'|'footstepWood'|'footstepTile'|'footstepMetal'|'weaponCrowbar'|'weaponPistol'|'weaponKnife';
 type Surface = 'carpet'|'wood'|'tile'|'metal';
 type Zone = {name:string;x:number;y:number;kind:'water'|'city'|'fluorescent'|'server'|'generator'|'lounge';cutoff:number;frequency:number;radius:number};
 const CUES: Record<SoundEvent, number[]> = {
   roundStart:[392,494,587,740], kill:[196,247,294], death:[440,370,294,220],
   bodyFound:[587,740,880], crewWin:[523,659,784,988,1175], moleWin:[220,262,311,370],
   task:[659,784,988], meeting:[330,392,494], sabotage:[164,196,247],
-  footstepCarpet:[78], footstepWood:[112], footstepTile:[146], footstepMetal:[185],
+  footstepCarpet:[78], footstepWood:[112], footstepTile:[146], footstepMetal:[185], weaponCrowbar:[146,196,247,294], weaponPistol:[110,165,220], weaponKnife:[262,330,392],
 };
 const ZONES: Zone[] = [
   {name:'lounge',x:2822,y:504,kind:'lounge',cutoff:1150,frequency:174,radius:1250},
@@ -96,10 +96,10 @@ export class EstateAudio {
     const notes=CUES[event],now=ctx.currentTime,isStep=event.startsWith('footstep');
     notes.forEach((frequency,index)=>{
       const osc=ctx.createOscillator(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
-      osc.type=isStep?'triangle':event==='kill'||event==='sabotage'?'sawtooth':'triangle';
+      osc.type=isStep?'triangle':event==='kill'||event==='sabotage'||event==='weaponPistol'?'sawtooth':'triangle';
       osc.frequency.setValueAtTime(frequency,now+index*.055);
       if(event==='kill'||event==='death'||event==='moleWin')osc.frequency.exponentialRampToValueAtTime(Math.max(45,frequency*.72),now+index*.055+.24);
-      filter.type='lowpass';filter.frequency.value=isStep?420:event==='kill'?1150:2400;
+      filter.type='lowpass';filter.frequency.value=isStep?420:event==='kill'||event==='weaponCrowbar'?1500:event==='weaponPistol'?2800:2400;
       const peak=isStep?.045:.075;
       gain.gain.setValueAtTime(.0001,now+index*.055);gain.gain.exponentialRampToValueAtTime(peak,now+index*.055+.018);
       gain.gain.exponentialRampToValueAtTime(.0001,now+index*.055+(isStep?.12:.34));
