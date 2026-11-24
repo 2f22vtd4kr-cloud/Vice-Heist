@@ -411,7 +411,29 @@ io.on('connection', socket => {
     player.moveX=dx;player.moveY=dy;player.movementInputAt=now;
     reply({ok:true,x:player.x,y:player.y});
   });
-  socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
+  socket.on('use',(input?:{taskId?:unknown;answer?:unknown})=>{
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW')return;
+    const taskId=typeof input?.taskId==='string'?input.taskId:'';
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done);
+    if(!task||Math.hypot(task.x-player.x,task.y-player.y)>=150){socket.emit('notice','Move closer to an unfinished task.');return;}
+    const answer=input?.answer;
+    const numeric=typeof answer==='number'&&Number.isFinite(answer)?answer:NaN;
+    const valid:Record<string,()=>boolean>={
+      vault:()=>answer==='2741',
+      server:()=>answer==='blue,gold,red,teal',
+      helipad:()=>numeric>=250&&numeric<=1500,
+      generator:()=>answer==='1011',
+      dock:()=>numeric>=2000&&numeric<=10000,
+      bar:()=>answer==='lime,ice,rum',
+      pool:()=>numeric>=68&&numeric<=76,
+      garage:()=>numeric>=1600&&numeric<=10000,
+    };
+    if(!valid[task.id]?.()){
+      socket.emit('notice','That operation did not pass verification. Try the puzzle again.');
+      return;
+    }
+    task.done=true;player.tasks++;notice(room,`${player.name} completed ${task.label}.`);finish(room);emit(room);
+  });
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.corpseX-player.x,t.corpseY-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
