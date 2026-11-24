@@ -153,8 +153,9 @@ function advancePlayer(p: Player, now: number, doorsActive=false) {
   const stepX = dx / steps, stepY = dy / steps;
   for (let i = 0; i < steps; i++) {
     const nextX = p.x + stepX, nextY = p.y + stepY;
-    if (!blockedWithDoors(nextX,p.y,18,doorsActive) || doorsActive && DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g))) p.x = nextX;
-    if (!blockedWithDoors(p.x,nextY,18,doorsActive) || doorsActive && DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g))) p.y = nextY;
+    const leavingDoor=doorsActive&&DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g));
+    if (!blocked(nextX,p.y) && (!doorBlocked(nextX,p.y,doorsActive)||leavingDoor)) p.x = nextX;
+    if (!blocked(p.x,nextY) && (!doorBlocked(p.x,nextY,doorsActive)||leavingDoor)) p.y = nextY;
   }
 }
 const rooms = new Map<string, Room>();
