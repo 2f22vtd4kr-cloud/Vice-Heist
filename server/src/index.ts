@@ -435,9 +435,11 @@ function botsTick(r: Room, now: number) {
           const visible=hasLineOfSight(bot,candidate);
           const previous=botHuntTargets.get(bot.id);
           const repeatPenalty=previous?.targetId===candidate.id?-180:0;
+          const otherMoleFocus=[...botHuntTargets.entries()].some(([otherId,target])=>otherId!==bot.id&&target.targetId===candidate.id)?220:0;
           // Human players get a modest attention bonus, not an exclusive target lock.
+          // A target already being hunted by another Mole is less attractive, spreading pressure.
           const humanBonus=candidate.bot?0:-115;
-          const score=distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+humanBonus;
+          const score=distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+otherMoleFocus+humanBonus;
           return {candidate,distance,visible,score};
         }).sort((x,y)=>x.score-y.score);
         const previous=botHuntTargets.get(bot.id);
