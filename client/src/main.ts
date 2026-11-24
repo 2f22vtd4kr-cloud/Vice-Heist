@@ -169,13 +169,8 @@ async function showSplash() {
 
   const button = document.querySelector<HTMLButtonElement>('#vh-splash');
   if (!button) return;
-  let autoStartTimer: number | undefined;
   const enterMenu = () => {
     if (!splashReady || splashDismissed || splashStarting || phaserLoadError) return;
-    if (autoStartTimer !== undefined) {
-      window.clearTimeout(autoStartTimer);
-      autoStartTimer = undefined;
-    }
     splashStarting = true;
     gameAudio.startPlaylist();
     button.classList.remove('vh-phase-ready');
@@ -273,7 +268,6 @@ async function showSplash() {
     button.setAttribute('aria-label', 'Tap to start Vice Heist');
     const panel = document.querySelector<HTMLElement>('#vh-splash-panel');
     if (panel) panel.innerHTML = '<span class="vh-tap"><span>Tap to start</span></span>';
-    autoStartTimer = window.setTimeout(enterMenu, 1_500);
   } catch (error) {
     phaserLoadError = error instanceof Error ? error.message : String(error);
     const fill = document.querySelector<HTMLElement>('#vh-splash-fill');
@@ -373,7 +367,7 @@ function updateLobby(s: Snapshot) {
 }
 function hud() {
   currentPhase='PLAYING';
-  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><div class="hud-tools"><button id="map-toggle" aria-label="Open estate map"><img src="${artUrl('btn_map_toggle')}" alt=""></button><button id="camera-toggle" aria-label="Open security cameras"><img src="${artUrl('overlay_cctv_monitor')}" alt=""></button><button id="settings-toggle" aria-label="Open settings"><img src="${artUrl('btn_settings')}" alt=""></button><button id="chat-toggle" aria-label="Open meeting chat"><img src="${artUrl('btn_chat_toggle')}" alt=""></button><button id="sound" aria-label="Toggle sound">♫</button></div></div><div class="objective" id="objective"><span class="objective-label">Complete the estate jobs. Find the Mole.</span><div class="objective-meter" aria-hidden="true"><i id="objective-fill"></i></div></div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div class="actions"><button id="use" aria-label="Use"><img class="action-art" src="${artUrl('btn_use_dim')}" alt=""><span>USE</span></button><button id="report" aria-label="Report"><img class="action-art" src="${artUrl('btn_report_dim')}" alt=""><span>REPORT</span></button><button id="emergency" aria-label="Emergency meeting"><img class="action-art" src="${artUrl('btn_emergency_call')}" alt=""><span>EMERGENCY</span></button><button id="kill" class="danger" aria-label="Eliminate"><img class="action-art" src="${artUrl('btn_kill_dim')}" alt=""><span>ELIMINATE</span></button><button id="sabotage" class="danger" aria-label="Sabotage"><img class="action-art" src="${artUrl('btn_sabotage_active')}" alt=""><span>LIGHTS</span></button><button id="vent" class="vent-action" aria-label="Use vent"><span>VENT</span></button></div><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
+  show(`<div class="hud"><div class="hudtop"><b>VICE HEIST</b><span>OCEAN DRIVE ESTATE</span><div class="hud-tools"><button id="map-toggle" aria-label="Open estate map"><img src="${artUrl('btn_map_toggle')}" alt=""></button><button id="settings-toggle" aria-label="Open settings"><img src="${artUrl('btn_settings')}" alt=""></button><button id="chat-toggle" aria-label="Open meeting chat"><img src="${artUrl('btn_chat_toggle')}" alt=""></button><button id="sound" aria-label="Toggle sound">♫</button></div></div><div class="objective" id="objective"><span class="objective-label">Complete the estate jobs. Find the Mole.</span><div class="objective-meter" aria-hidden="true"><i id="objective-fill"></i></div></div><div class="radar" id="radar" aria-label="Estate radar"></div><div class="controls"><div class="actions"><button id="use" aria-label="Use"><img class="action-art" src="${artUrl('btn_use_dim')}" alt=""><span>USE</span></button><button id="camera-use" aria-label="Use server room security console" style="display:none"><img class="action-art" src="${artUrl('overlay_cctv_monitor')}" alt=""><span>CAMERAS</span></button><button id="report" aria-label="Report"><img class="action-art" src="${artUrl('btn_report_dim')}" alt=""><span>REPORT</span></button><button id="emergency" aria-label="Emergency meeting"><img class="action-art" src="${artUrl('btn_emergency_call')}" alt=""><span>EMERGENCY</span></button><button id="kill" class="danger" aria-label="Eliminate"><img class="action-art" src="${artUrl('btn_kill_dim')}" alt=""><span>ELIMINATE</span></button><button id="sabotage" class="danger" aria-label="Sabotage"><img class="action-art" src="${artUrl('btn_sabotage_active')}" alt=""><span>LIGHTS</span></button><button id="vent" class="vent-action" aria-label="Use vent"><span>VENT</span></button></div><div id="stick" class="stick" aria-label="Movement joystick"><div id="knob" class="knob"></div></div></div><div class="toast" id="toast"></div><div class="meet" id="meet"></div></div>`);
   wireControls(); updateHud(latest);
   document.querySelector('.controls')?.classList.toggle('left-handed',leftHanded);
 }
@@ -419,7 +413,7 @@ function wireControls() {
   document.querySelector('#vent')!.addEventListener('click',()=>{const v=nearestVent();if(!v){toast('Move closer to a vent entrance.');return;}socket.emit('vent:travel',{ventId:v.id},(result?:{ok:boolean;error?:string;ventId?:string})=>{if(!result?.ok)toast(result?.error||'Vent travel failed.');else{toast('Vent network: '+(result.ventId||'destination reached'));tone(520);}});haptic();});
   document.querySelector('#sound')!.addEventListener('click',()=>{muted=!muted;localStorage.setItem('vh-muted',String(muted));gameAudio.setMuted(muted);document.querySelector('#sound')!.textContent=muted?'×':'♫';if(!muted)tone(520);});
   document.querySelector('#map-toggle')!.addEventListener('click',()=>openMapOverlay());
-  document.querySelector('#camera-toggle')!.addEventListener('click',()=>openCameraOverlay());
+  document.querySelector('#camera-use')!.addEventListener('click',()=>openCameraOverlay());
   document.querySelector('#settings-toggle')!.addEventListener('click',()=>openSettingsOverlay());
   document.querySelector('#chat-toggle')!.addEventListener('click',()=>{const chat=document.querySelector('#chatlines');if(chat)chat.scrollIntoView({block:'center'});else toast('Chat opens during a meeting.');});
 }
@@ -429,9 +423,10 @@ function openMapOverlay(){
   const players=latest.players.map(p=>`<i class="blueprint-player ${p.id===myId?'self':''} ${p.alive?'':'down'}" title="${escapeHtml(p.name)}" style="left:${p.x/8192*100}%;top:${p.y/4096*100}%"></i>`).join('');
   const tasksOnMap=latest.tasks.map(t=>`<i class="blueprint-task ${t.done?'done':''}" title="${escapeHtml(t.label)}" style="left:${t.x/8192*100}%;top:${t.y/4096*100}%"></i>`).join('');
   const ventsOnMap=(latest.vents||[]).map(v=>`<i class="blueprint-vent" title="Mole vent · ${escapeHtml(v.id)}" style="left:${v.x/8192*100}%;top:${v.y/4096*100}%"></i>`).join('');
+  const cameraConsoleMarker='<i class="blueprint-camera" title="Security camera console · Server room" style="left:'+(CCTV_CONSOLE_WORLD.x/8192*100)+'%;top:'+(CCTV_CONSOLE_WORLD.y/4096*100)+'%"></i>';
   const sectors=['Helipad / security','VIP lounge','Master suite / vault','Pool / terrace','Garage','Server room','Generator bay','Speedboat dock'];
   const tiles=sectors.map((label,i)=>`<div class="blueprint-sector"><img src="/assets/map/take-${i+1}.webp" alt=""><span>${label}</span></div>`).join('');
-  m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · 4 × 2 SECTORS</p><h3>Estate blueprint</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="estate-blueprint"><div class="blueprint-grid">${tiles}</div><div class="blueprint-markers">${tasksOnMap}${ventsOnMap}${players}</div></div><div class="blueprint-legend"><span><i class="blueprint-player self"></i> You / crew</span><span><i class="blueprint-task"></i> Objective</span>${latest.selfRole==='MOLE'?'<span><i class="blueprint-vent"></i> Vent</span>':''}</div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
+  m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · 4 × 2 SECTORS</p><h3>Estate blueprint</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="estate-blueprint"><div class="blueprint-grid">${tiles}</div><div class="blueprint-markers">${tasksOnMap}${ventsOnMap}${cameraConsoleMarker}${players}</div></div><div class="blueprint-legend"><span><i class="blueprint-player self"></i> You / crew</span><span><i class="blueprint-task"></i> Objective</span><span><i class="blueprint-camera"></i> CCTV console</span>${latest.selfRole==='MOLE'?'<span><i class="blueprint-vent"></i> Vent</span>':''}</div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
   m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
 }
 const CAMERA_SECTORS=[
@@ -441,10 +436,18 @@ const CAMERA_SECTORS=[
   {label:'Generator bay',tile:7},{label:'Speedboat dock',tile:8},
 ] as const;
 const CCTV_CAMERA_CENTERS=[{x:800,y:700},{x:1000,y:1000},{x:1400,y:1000},{x:180,y:850},{x:1000,y:1000},{x:1300,y:1100},{x:1000,y:1000},{x:250,y:1100}] as const;
+const CCTV_CONSOLE_WORLD={x:3348,y:3148};
+function atCctvConsole(player=latest?.players.find(p=>p.id===myId)){return !!player?.alive&&Math.hypot(player.x-CCTV_CONSOLE_WORLD.x,player.y-CCTV_CONSOLE_WORLD.y)<190;}
 let cameraIndex=0;
 let cameraOpen=false;
 function updateCameraFeed(){
   if(!cameraOpen||!latest)return;
+  if(!atCctvConsole()){
+    cameraOpen=false;
+    const panel=document.querySelector<HTMLDivElement>('#meet');if(panel)panel.innerHTML='';
+    toast('Security camera feed closed: return to the server-room console.');
+    return;
+  }
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
   const camera=CAMERA_SECTORS[cameraIndex],sector=camera.tile-1,col=sector%4,row=Math.floor(sector/4);
   const left=col*2048,top=row*2048;
@@ -461,7 +464,7 @@ function updateCameraFeed(){
     const draw=()=>{
       if(!cameraOpen)return;
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      if(image?.complete&&image.naturalWidth>0)ctx.drawImage(image,(centerX-viewWidth/2)/4,(centerY-viewHeight/2)/4,viewWidth/4,viewHeight/4,0,0,canvas.width,canvas.height);
+      if(image?.complete&&image.naturalWidth>0)ctx.drawImage(image,centerX-viewWidth/2,centerY-viewHeight/2,viewWidth,viewHeight,0,0,canvas.width,canvas.height);
       else{ctx.fillStyle='#0a1b24';ctx.fillRect(0,0,canvas.width,canvas.height);}
       if(!signalLost)sceneRef?.drawCctvActors(ctx,sector,centerX,centerY,viewWidth,viewHeight,canvas.width,canvas.height);
     };
@@ -472,6 +475,7 @@ function updateCameraFeed(){
 }
 function openCameraOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
+  if(!atCctvConsole()){toast('Security cameras are available at the server-room console.');return;}
   cameraOpen=true;cameraIndex=0;
   m.innerHTML='<section class="meetingbox art-panel cctv-panel" role="dialog" aria-modal="true" aria-label="Live sector map monitor"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · SECURITY NETWORK</p><h3>Live sector monitor</h3></div><button class="panel-close" id="cctv-close" aria-label="Close cameras">×</button></header><div class="cctv-frame"><div class="cctv-frame-head"><b id="cctv-title"></b><span>LIVE · PLAYER TRACKING</span></div><div class="cctv-feed"><img id="cctv-image" class="cctv-map-source" alt=""><canvas id="cctv-feed-canvas" width="512" height="288" aria-label="Rendered live sector camera view"></canvas><div id="cctv-interference" class="cctv-interference" aria-hidden="true"><strong>NO SIGNAL</strong><span>LIGHTS SABOTAGE ACTIVE</span></div><div class="cctv-scanlines"></div></div><div class="cctv-status" id="cctv-status"></div></div><div class="cctv-controls"><button id="cctv-prev" class="secondary">‹ PREVIOUS</button><span id="cctv-index">01 / 08</span><button id="cctv-next" class="secondary">NEXT ›</button></div><p class="muted">Fixed top-down sector cameras render live character sprites using authoritative multiplayer positions.</p></section>';
   m.querySelector('#cctv-close')?.addEventListener('click',()=>{cameraOpen=false;m.innerHTML='';});
@@ -481,12 +485,11 @@ function openCameraOverlay(){
 }
 function openSettingsOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Music volume <input id="vh-music-volume" type="range" min="0" max="100" value="55"></label><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><button id="settings-open-cameras">OPEN FEED</button></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Mole-only vent travel is active. All eight entrances appear on the Mole’s map and radar.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Physical door collision gates and a selectable door-lockdown action are still outstanding.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
+  m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Music volume <input id="vh-music-volume" type="range" min="0" max="100" value="55"></label><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="48"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Mole-only vent travel is active. All eight entrances appear on the Mole’s map and radar.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Physical door collision gates and a selectable door-lockdown action are still outstanding.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
   const sfxSlider=m.querySelector<HTMLInputElement>('#vh-sfx-volume');if(sfxSlider)sfxSlider.value=localStorage.getItem('vh-effects-volume')||'80';
-  const ambienceSlider=m.querySelector<HTMLInputElement>('#vh-ambience-volume');if(ambienceSlider)ambienceSlider.value=localStorage.getItem('vh-ambience-volume')||'32';
+  const ambienceSlider=m.querySelector<HTMLInputElement>('#vh-ambience-volume');if(ambienceSlider)ambienceSlider.value=localStorage.getItem('vh-ambience-volume')||'48';
   const musicSlider=m.querySelector<HTMLInputElement>('#vh-music-volume');if(musicSlider)musicSlider.value=localStorage.getItem('vh-music-volume')||'55';
   m.querySelector('#settings-close')?.addEventListener('click',()=>m.innerHTML='');
-  m.querySelector('#settings-open-cameras')?.addEventListener('click',openCameraOverlay);
   m.querySelector('#settings-done')?.addEventListener('click',()=>m.innerHTML='');
   m.querySelector('#settings-sound')?.addEventListener('click',()=>{muted=!muted;localStorage.setItem('vh-muted',String(muted));gameAudio.setMuted(muted);const b=m.querySelector('#settings-sound');if(b)b.textContent=muted?'OFF':'ON';});
   m.querySelector<HTMLInputElement>('#vh-sfx-volume')?.addEventListener('input',e=>{const value=(e.target as HTMLInputElement).value;gameAudio.setEffectsVolume(Number(value)/100);localStorage.setItem('vh-effects-volume',value);});
@@ -578,6 +581,7 @@ function updateHud(s: Snapshot | null) {
     const players=s.players.map(p=>'<i class="radar-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" style="left:'+(p.x/8192*100)+'%;top:'+(p.y/4096*100)+'%;--marker:'+escapeHtml(p.color)+'"></i>').join('');
     const vents=(s.vents||[]).map(v=>'<i class="radar-vent" title="Mole vent" style="left:'+(v.x/8192*100)+'%;top:'+(v.y/4096*100)+'%"></i>').join('');radar.innerHTML=tasks+vents+players;
   }
+  const cameraUse=document.querySelector<HTMLButtonElement>('#camera-use');if(cameraUse)cameraUse.style.display=atCctvConsole(local)?'grid':'none';
   setButtonArt('use',local?.alive&&s.selfRole!=='MOLE'&&!!nearestTask()?'btn_use_active':'btn_use_dim');
   setButtonArt('report',local?.alive&&!!nearestBody()?'btn_report_active':'btn_report_dim');
   const kill=document.querySelector<HTMLButtonElement>('#kill'),sab=document.querySelector<HTMLButtonElement>('#sabotage');
@@ -905,7 +909,7 @@ class Estate extends Phaser.Scene {
       onComplete:()=>{
         this.deathAnimating.delete(id);
         if(!actor.active)return;
-        actor.setAngle(0).setScale(.24).setAlpha(.92);
+        actor.setPosition(actor.x,latest?.players.find(player=>player.id===id)?.y??actor.y-9).setAngle(0).setScale(.24).setAlpha(.92);
         actor.play('vh-ghost-float',true);
       }
     });
@@ -1023,7 +1027,7 @@ class Estate extends Phaser.Scene {
     else if(magnitude>0){
       gameAudio.updateWorld(me.x,me.y);
       const surface=floorSurfaceAt(me.x,me.y);
-      gameAudio.step(time,surface);
+      if(local.alive)gameAudio.step(time,surface);
       if(!this.moving){this.moving=true;this.moveSequence++;}
       // Same speed, analog scaling and collision sweep as server authority.
       const dt=Phaser.Math.Clamp(delta,0,60)/1000,speed=local.alive?370:250;
@@ -1031,9 +1035,9 @@ class Estate extends Phaser.Scene {
       const predicted=this.moveWithCollision(me.x,me.y,x/magnitude*travel,y/magnitude*travel);
       me.x=predicted.x;me.y=predicted.y;
       if(actor)actor.setPosition(me.x,me.y);
+      if(actor&&Math.abs(x)>Math.abs(y))actor.setFlipX(x<0);
       if(local.alive&&actor){
         const walkKey=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';
-        actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);
         if(actor.anims.currentAnim?.key!=='vh-kill-lunge'&&(actor.anims.currentAnim?.key!==walkKey||!actor.anims.isPlaying))actor.play(walkKey,true);
       }
       if(time-this.lastEmit>=50){

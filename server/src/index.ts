@@ -434,26 +434,31 @@ function botsTick(r: Room, now: number) {
           const nearbyCrew=alive.filter(other=>other.id!==candidate.id&&other.role==='CREW'&&Math.hypot(other.x-candidate.x,other.y-candidate.y)<320).length;
           const visible=hasLineOfSight(bot,candidate);
           const previous=botHuntTargets.get(bot.id);
-          const repeatPenalty=0; // Keep the selected human target instead of oscillating between crew bots.
-          const playerBias=candidate.bot?900:-450;
-          return {candidate,distance,visible,score:distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+playerBias};
-        }).sort((a,b)=>a.score-b.score);
+          const repeatPenalty=previous?.targetId===candidate.id?-180:0;
+          const otherMoleFocus=[...botHuntTargets.entries()].some(([otherId,target])=>otherId!==bot.id&&target.targetId===candidate.id)?220:0;
+          // Human players get a modest attention bonus, not an exclusive target lock.
+          // A target already being hunted by another Mole is less attractive, spreading pressure.
+          const humanBonus=candidate.bot?0:-115;
+          const score=distance+nearbyCrew*210+(visible?0:360)+repeatPenalty+otherMoleFocus+humanBonus;
+          return {candidate,distance,visible,score};
+        }).sort((x,y)=>x.score-y.score);
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
-        const humanTarget=crew.find(entry=>!entry.candidate.bot);
-        // A Mole NPC should blend into the estate instead of beelining toward
-        // the human from across the map. It only commits to a hunt at close
-        // range, with a low per-tick decision chance; an active short hunt is
-        // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<8_000&&current.distance<1_800;
-        // If the human is already in the Mole's local area, commit instead of
-        // waiting for another low-probability roll. At medium range, use a
-        // stronger discretionary roll so a nearby human is not ignored for
-        // an entire solo round. The retained target prevents oscillation.
-        const commit=retain||!!humanTarget&&(humanTarget.distance<900||humanTarget.distance<1_600&&random()<0.12);
-        if(commit&&humanTarget){
-          if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,350,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+        const retain=!!current&&!!previous&&now-previous.selectedAt<5_500&&current.distance<1_500;
+        let chosen=retain?current:undefined;
+        if(!chosen&&crew.length){
+          const pool=crew.slice(0,Math.min(3,crew.length));
+          const alternatives=pool.filter(entry=>entry.candidate.id!==previous?.targetId);
+          const choices=alternatives.length?alternatives:pool;
+          const weights=choices.map(entry=>entry.candidate.bot?1:1.35);
+          const total=weights.reduce((sum,value)=>sum+value,0);
+          let roll=random()*total,index=0;
+          for(;index<weights.length-1&&roll>=weights[index];index++)roll-=weights[index];
+          chosen=choices[index];
+          if(chosen)botHuntTargets.set(bot.id,{targetId:chosen.candidate.id,selectedAt:now});
+        }
+        if(chosen&&chosen.distance<2_200&&(chosen.visible||chosen.distance<1_000)){
+          moveBotToward(bot,chosen.candidate,350,dtSeconds,'hunt:'+chosen.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];

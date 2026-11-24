@@ -26,7 +26,7 @@ export class EstateAudio {
   private noise?: AudioBuffer;
   private muted=false;
   private effectsVolume=.8;
-  private ambienceVolume=.32;
+  private ambienceVolume=.48;
   private loops=new Map<string,AmbientLoop>();
   private lastStep=0;
   private lastZone='';
@@ -89,32 +89,39 @@ export class EstateAudio {
     const source=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
     source.buffer=this.noise;filter.type=filterType;filter.frequency.value=frequency;filter.Q.value=filterType==='bandpass'?0.8:0.5;
     gain.gain.setValueAtTime(.0001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(level,ctx.currentTime+.006);gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);
-    source.connect(filter);filter.connect(gain);gain.connect(this.sfx);source.start();source.stop(ctx.currentTime+duration+.02);
+    source.connect(filter);filter.connect(gain);gain.connect(this.sfx);source.start(0,Math.random()*Math.max(.01,this.noise.duration-duration));source.stop(ctx.currentTime+duration+.02);
   }
   play(event:SoundEvent){
     const ctx=this.getContext(),sfx=this.sfx;if(!ctx||this.muted||!sfx)return;
-    const notes=CUES[event],now=ctx.currentTime,isStep=event.startsWith('footstep');
+    const now=ctx.currentTime,isStep=event.startsWith('footstep');
+    if(isStep){
+      // Short layered impacts replace the synthetic pitched "wood slap".
+      const surface=event.slice('footstep'.length).toLowerCase() as Surface;
+      const profile=surface==='carpet'?{thump:105,scuff:210,level:.035,filter:'lowpass' as BiquadFilterType,duration:.085}
+        :surface==='wood'?{thump:125,scuff:390,level:.045,filter:'lowpass' as BiquadFilterType,duration:.075}
+        :surface==='metal'?{thump:145,scuff:1250,level:.042,filter:'bandpass' as BiquadFilterType,duration:.095}
+        :{thump:135,scuff:760,level:.04,filter:'bandpass' as BiquadFilterType,duration:.075};
+      this.noiseHit(profile.thump,profile.level*.72,.065,'lowpass');
+      this.noiseHit(profile.scuff,profile.level,profile.duration,profile.filter);
+      return;
+    }
+    const notes=CUES[event];
     notes.forEach((frequency,index)=>{
       const osc=ctx.createOscillator(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
-      osc.type=isStep?'triangle':event==='kill'||event==='sabotage'||event==='weaponPistol'?'sawtooth':'triangle';
+      osc.type=event==='kill'||event==='sabotage'||event==='weaponPistol'?'sawtooth':'triangle';
       osc.frequency.setValueAtTime(frequency,now+index*.055);
       if(event==='kill'||event==='death'||event==='moleWin')osc.frequency.exponentialRampToValueAtTime(Math.max(45,frequency*.72),now+index*.055+.24);
-      filter.type='lowpass';filter.frequency.value=isStep?420:event==='kill'||event==='weaponCrowbar'?1500:event==='weaponPistol'?2800:2400;
-      const peak=isStep?.045:.075;
-      gain.gain.setValueAtTime(.0001,now+index*.055);gain.gain.exponentialRampToValueAtTime(peak,now+index*.055+.018);
-      gain.gain.exponentialRampToValueAtTime(.0001,now+index*.055+(isStep?.12:.34));
+      filter.type='lowpass';filter.frequency.value=event==='kill'||event==='weaponCrowbar'?1500:event==='weaponPistol'?2800:2400;
+      gain.gain.setValueAtTime(.0001,now+index*.055);gain.gain.exponentialRampToValueAtTime(.075,now+index*.055+.018);
+      gain.gain.exponentialRampToValueAtTime(.0001,now+index*.055+.34);
       osc.connect(filter);filter.connect(gain);gain.connect(sfx);osc.start(now+index*.055);osc.stop(now+index*.055+.38);
     });
-    if(isStep){
-      const surface=event.slice('footstep'.length).toLowerCase() as Surface;
-      const frequency=surface==='carpet'?260:surface==='wood'?520:surface==='metal'?1750:980;
-      this.noiseHit(frequency,surface==='carpet'?.035:.065,surface==='carpet'?.075:.11,surface==='carpet'?'lowpass':'bandpass');
-    }else if(event==='kill')this.noiseHit(620,.10,.19,'lowpass');
+    if(event==='kill')this.noiseHit(620,.10,.19,'lowpass');
     else if(event==='bodyFound')this.noiseHit(1450,.045,.12,'bandpass');
     else if(event==='sabotage')this.noiseHit(180,.07,.3,'lowpass');
   }
   step(now:number,surface:Surface='tile'){
-    if(now-this.lastStep<285)return;this.lastStep=now;
+    if(now-this.lastStep<320)return;this.lastStep=now;
     this.play(surface==='carpet'?'footstepCarpet':surface==='wood'?'footstepWood':surface==='metal'?'footstepMetal':'footstepTile');
   }
   private createLoop(zone:Zone):AmbientLoop|undefined{
@@ -138,12 +145,12 @@ export class EstateAudio {
       if(!loop)continue;
       const d=Math.hypot(zone.x-x,zone.y-y);
       const attenuation=Math.pow(Math.max(0,1-d/zone.radius),1.7);
-      const level=zone.name===chosen.name?this.ambienceVolume*attenuation*.22:0;
+      const level=this.ambienceVolume*attenuation*.48;
       loop.gain.gain.setTargetAtTime(level,ctx.currentTime,.32);
-      loop.hum?.gain.setTargetAtTime(level*.22,ctx.currentTime,.32);
+      loop.hum?.gain.setTargetAtTime(level*.38,ctx.currentTime,.32);
     }
     const musicDistance=Math.hypot(2822-x,504-y);
-    const musicAttenuation=Math.pow(Math.max(0,1-musicDistance/2600),1.35);
+    const musicAttenuation=.16+.84*Math.pow(Math.max(0,1-musicDistance/3000),1.25);
     if(this.musicGain)this.musicGain.gain.setTargetAtTime(this.musicVolume*musicAttenuation,ctx.currentTime,.38);
     if(this.musicFilter)this.musicFilter.frequency.setTargetAtTime(550+17_500*musicAttenuation,ctx.currentTime,.42);
     this.lastZone=chosen.name;
