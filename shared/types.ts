@@ -17,6 +17,7 @@ export type Snapshot = {
   code: string; phase: Phase; players: PublicPlayer[]; selfRole?: Role; isHost: boolean;
   tasks: Task[]; taskTotal: number; vents: Vent[]; selfVentCooldownUntil: number; meeting?: Meeting; winner?: 'CREW' | 'MOLE';
   sabotage?: { kind: string; endsAt: number };
+  doorGates: Array<{ id:string; name:string; x1:number; y1:number; x2:number; y2:number }>; 
   lastKill?: { killerId: string; victimId: string; at: number; weapon?: Weapon };
   selfCooldownUntil: number; selfEmergencyUsed: boolean; emergencyCooldownUntil: number;
 };
