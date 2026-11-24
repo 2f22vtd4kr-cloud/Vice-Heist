@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const source=readFileSync('client/src/main.ts','utf8');
+const styles=readFileSync('client/src/style.css','utf8');
+const feed=source.slice(source.indexOf('function updateCameraFeed(){'),source.indexOf('\nfunction openCameraOverlay()',source.indexOf('function updateCameraFeed(){')));
+assert.match(feed,/latest\.sabotage\?\.kind==='lights'/,'CCTV should detect active lights sabotage');
+assert.match(feed,/signalLost\?'':latest\.players/,'player tracking markers should be hidden during a blackout');
+assert.match(feed,/SIGNAL LOST · LIGHTS SABOTAGE ACTIVE/,'CCTV status should report the outage');
+assert.match(source,/id="cctv-interference"/,'CCTV overlay should contain a signal-loss indicator');
+assert.match(styles,/\.cctv-feed\.signal-lost \.cctv-interference\{display:flex\}/,'signal-loss overlay should appear during lights sabotage');
+console.log('CCTV sabotage regression passed: lights sabotage interrupts live player tracking and displays a signal-loss state.');

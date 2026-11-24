@@ -759,3 +759,10 @@ input,textarea{user-select:text;-webkit-user-select:text}
 
 .radar-vent{position:absolute;width:5px;height:5px;border:1px solid #c7fff4;background:#4ccbb5;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 5px #4ccbb5}
 .blueprint-vent{position:absolute;width:9px;height:9px;background:#4ccbb5;border:2px solid #d8fff5;border-radius:2px;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 8px #4ccbb5}
+
+.cctv-interference{display:none;position:absolute;z-index:4;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:rgba(7,10,16,.91);color:#ff7782;text-align:center;font:700 11px/1.3 monospace;letter-spacing:.16em}
+.cctv-interference:before{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(to bottom,transparent 0,rgba(255,255,255,.12) 1px,transparent 3px);opacity:.35}
+.cctv-interference strong{font-size:clamp(20px,5vw,30px);text-shadow:0 0 14px rgba(255,90,110,.7)}
+.cctv-interference span{color:#f4b0b6;font-size:10px}
+.cctv-feed.signal-lost .cctv-interference{display:flex}
+.cctv-feed.signal-lost>img{filter:grayscale(1) brightness(.2) contrast(1.35)}
