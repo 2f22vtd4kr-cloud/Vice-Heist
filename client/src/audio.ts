@@ -69,18 +69,18 @@ export class EstateAudio {
     source.connect(filter);filter.connect(gain);gain.connect(this.master!);
     this.musicElement=audio;this.musicFilter=filter;this.musicGain=gain;
     audio.addEventListener('playing',()=>{this.musicFailures=0;});
-    audio.addEventListener('ended',()=>this.advancePlaylist());
-    audio.addEventListener('error',()=>this.advancePlaylist());
+    audio.addEventListener('ended',()=>this.advancePlaylist(false));
+    audio.addEventListener('error',()=>this.advancePlaylist(true));
     this.loadMusicTrack();
   }
   private loadMusicTrack(){
     if(!this.musicElement||!this.musicStarted)return;
     this.musicElement.src=this.musicTracks[this.musicIndex];this.musicElement.load();
-    const attempt=this.musicElement.play();if(attempt&&typeof attempt.catch==='function')attempt.catch(()=>{if(this.musicElement?.error)this.advancePlaylist();else this.musicStarted=false;});
+    const attempt=this.musicElement.play();if(attempt&&typeof attempt.catch==='function')attempt.catch(()=>{if(!this.musicElement?.error)this.musicStarted=false;});
   }
-  private advancePlaylist(){
+  private advancePlaylist(failed:boolean){
     if(!this.musicStarted)return;
-    this.musicFailures++;
+    if(failed)this.musicFailures++;else this.musicFailures=0;
     if(this.musicFailures>=this.musicTracks.length){this.musicStarted=false;return;}
     this.musicIndex=(this.musicIndex+1)%this.musicTracks.length;this.loadMusicTrack();
   }
