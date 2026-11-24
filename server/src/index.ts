@@ -158,7 +158,7 @@ function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,co
 function snapshot(r: Room, viewer: string): Snapshot {
   const p = r.players.get(viewer);
   return { code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:p?.role,isHost:r.host===viewer,
-    tasks:r.tasks,taskTotal:r.tasks.length,vents:VENTS,selfVentCooldownUntil:r.ventCooldownUntil.get(viewer)||0,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
+    tasks:r.tasks,taskTotal:r.tasks.length,vents:p?.role==='MOLE'?VENTS:[],selfVentCooldownUntil:p?.role==='MOLE'?(r.ventCooldownUntil.get(viewer)||0):0,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
     selfCooldownUntil:p?.cooldownUntil || 0,selfEmergencyUsed:p?.emergencyUsed || false,
     emergencyCooldownUntil:r.emergencyCooldownUntil };
 }
