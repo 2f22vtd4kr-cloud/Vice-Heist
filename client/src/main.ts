@@ -633,6 +633,7 @@ class Estate extends Phaser.Scene {
   private taskGlows = new Map<string, Phaser.GameObjects.Image>();
   private corpseArt = new Map<string, Phaser.GameObjects.Image>();
   private previousAlive = new Map<string, boolean>();
+  private deathAnimating = new Set<string>();
   private masks: Uint8Array[] = []; private visionCanvas?: HTMLCanvasElement; private visionContext?: CanvasRenderingContext2D; private lastVision = 0;
   private mapTiles = new Map<number, Phaser.GameObjects.Image>();
   private mapDesired = new Set<number>();
@@ -840,17 +841,42 @@ class Estate extends Phaser.Scene {
         this.nameLabels.set(local.id,this.add.text(local.x,local.y-48,local.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));
         this.cameras.main.startFollow(a,true,.30,.30);
       }
-      a.setAlpha(local.alive?1:.92).setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
-      if(!local.alive&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);
+      if(!this.deathAnimating.has(local.id))a.setAlpha(local.alive?1:.92);
+      a.setTint(Phaser.Display.Color.HexStringToColor(local.color).color);
+      if(!local.alive){
+        if(wasAlive===true)this.playDeathAnimation(local.id,a);
+        else if(!this.deathAnimating.has(local.id)&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);
+      }
     }
-    for(const p of s.players){this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);this.nameLabels.set(p.id,this.add.text(p.x,p.y-48,p.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));}if(a){
+    for(const p of s.players){const wasAlive=this.previousAlive.get(p.id);this.previousAlive.set(p.id,p.alive);if(p.id===myId)continue;let a=this.actors.get(p.id);if(!a){const created=this.add.sprite(p.x,p.y,'walk_down_1').setOrigin(.5,.92).setDepth(10).setScale(.24).setTint(Phaser.Display.Color.HexStringToColor(p.color).color);a=created;this.actors.set(p.id,created);this.nameLabels.set(p.id,this.add.text(p.x,p.y-48,p.name,{fontFamily:'Inter, sans-serif',fontSize:'16px',fontStyle:'700',color:'#fff',stroke:'#11121a',strokeThickness:4}).setOrigin(.5,1).setDepth(31));}if(a){
       const previous=this.remoteSamples.get(p.id)||[];const now=performance.now();const moving=!!previous.length&&Math.hypot(previous[previous.length-1].x-p.x,previous[previous.length-1].y-p.y)>1.5;
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>8)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
-      a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
+      if(!this.deathAnimating.has(p.id))a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(wasAlive===true)this.playDeathAnimation(p.id,a);else if(!this.deathAnimating.has(p.id)&&a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
     if(s.lastKill&&s.lastKill.at>this.lastKillAt){this.lastKillAt=s.lastKill.at;this.playWeaponAttack(s.lastKill.killerId,s.lastKill.weapon||'crowbar');}
     for(const [id,a] of this.actors){const label=this.nameLabels.get(id);if(label){label.setText(s.players.find(p=>p.id===id)?.name||'');label.setPosition(a.x,a.y-48);}}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.nameLabels.get(id)?.destroy();this.nameLabels.delete(id);this.remoteSamples.delete(id);}
+    this.deathAnimating.clear();
+  }
+  private playDeathAnimation(id:string,actor:Phaser.GameObjects.Sprite){
+    if(this.deathAnimating.has(id)||!actor.active)return;
+    this.deathAnimating.add(id);
+    actor.anims.stop();actor.setAngle(0).setAlpha(1).setScale(.24);
+    this.tweens.add({
+      targets:actor,
+      angle:actor.flipX?-90:90,
+      scaleY:.11,
+      alpha:.38,
+      y:actor.y+9,
+      duration:280,
+      ease:'Quad.easeIn',
+      onComplete:()=>{
+        this.deathAnimating.delete(id);
+        if(!actor.active)return;
+        actor.setAngle(0).setScale(.24).setAlpha(.92);
+        actor.play('vh-ghost-float',true);
+      }
+    });
   }
   private playWeaponAttack(killerId:string,weapon:Weapon){
     const actor=this.actors.get(killerId);if(!actor)return;
@@ -934,7 +960,7 @@ class Estate extends Phaser.Scene {
     // Remote actors use buffered snapshots. Never delay the local actor.
     for(const [id,samples] of this.remoteSamples){
       if(id===myId)continue;
-      const actor=this.actors.get(id);if(!actor||!samples.length)continue;
+      const actor=this.actors.get(id);if(!actor||!samples.length||this.deathAnimating.has(id))continue;
       const renderAt=now-120;
       while(samples.length>2&&samples[1].time<renderAt-250)samples.shift();
       let x=samples[samples.length-1].x,y=samples[samples.length-1].y;
@@ -961,7 +987,8 @@ class Estate extends Phaser.Scene {
     if(magnitude<.08){x=0;y=0;magnitude=0;}
     else if(magnitude>1){x/=magnitude;y/=magnitude;magnitude=1;}
     const actor=this.actors.get(myId);
-    if(magnitude>0){
+    if(this.deathAnimating.has(myId)){joystick={x:0,y:0};this.stopMovement();}
+    else if(magnitude>0){
       gameAudio.updateWorld(me.x,me.y);
       const surface=floorSurfaceAt(me.x,me.y);
       gameAudio.step(time,surface);
