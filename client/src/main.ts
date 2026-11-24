@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import type { Snapshot, PublicPlayer, Task, Vent } from '../../shared/types';
+import type { Snapshot, PublicPlayer, Task, Vent, Weapon } from '../../shared/types';
 import './style.css';
 import { EstateAudio } from './audio';
 import { VICE_HEIST_WALK_UP, VICE_HEIST_WALK_DOWN, VICE_HEIST_KILL, VICE_HEIST_GHOST } from './viceHeistAssetIds';
@@ -579,7 +579,7 @@ function renderState(s: Snapshot) {
     const beforeLocal=previousSnapshot.players.find(p=>p.id===myId),afterLocal=s.players.find(p=>p.id===myId);
     if(previousSnapshot.phase!=='PLAYING'&&s.phase==='PLAYING')gameAudio.play('roundStart');
     if(beforeLocal?.alive&&!afterLocal?.alive)gameAudio.play('death');
-    if(previousSnapshot.phase==='PLAYING'&&s.phase==='PLAYING'&&s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return p.id!==myId&&old?.alive&&!p.alive;}))gameAudio.play('kill');
+    if(previousSnapshot.phase==='PLAYING'&&s.phase==='PLAYING'&&s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return p.id!==myId&&old?.alive&&!p.alive;})){const weapon=s.lastKill?.weapon;gameAudio.play(weapon==='pistol'?'weaponPistol':weapon==='knife'?'weaponKnife':'weaponCrowbar');}
     if(s.players.some(p=>{const old=previousSnapshot.players.find(q=>q.id===p.id);return old&&!old.reported&&p.reported;}))gameAudio.play('bodyFound');
     if(s.tasks.some(t=>{const old=previousSnapshot.tasks.find(q=>q.id===t.id);return old&&!old.done&&t.done;}))gameAudio.play('task');
     if(previousSnapshot.phase!=='MEETING'&&s.phase==='MEETING')gameAudio.play('meeting');
@@ -845,9 +845,30 @@ class Estate extends Phaser.Scene {
       previous.push({x:p.x,y:p.y,time:now});if(previous.length>8)previous.shift();this.remoteSamples.set(p.id,previous);if(previous.length>1&&moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;if(Math.abs(dx)>Math.abs(dy))a.setFlipX(dx<0);}
       a.setAlpha(p.alive?1:.92);a.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);if(!p.alive){if(a.anims.currentAnim?.key!=='vh-ghost-float')a.play('vh-ghost-float',true);}else if(moving){const dx=p.x-previous[previous.length-2].x,dy=p.y-previous[previous.length-2].y;const walkKey=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';a.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(a.anims.currentAnim?.key!==walkKey)a.play(walkKey,true);}}
     }
-    if(s.lastKill&&s.lastKill.at>this.lastKillAt){this.lastKillAt=s.lastKill.at;this.actors.get(s.lastKill.killerId)?.play('vh-kill-lunge',true);}
+    if(s.lastKill&&s.lastKill.at>this.lastKillAt){this.lastKillAt=s.lastKill.at;this.playWeaponAttack(s.lastKill.killerId,s.lastKill.weapon||'crowbar');}
     for(const [id,a] of this.actors){const label=this.nameLabels.get(id);if(label){label.setText(s.players.find(p=>p.id===id)?.name||'');label.setPosition(a.x,a.y-48);}}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.nameLabels.get(id)?.destroy();this.nameLabels.delete(id);this.remoteSamples.delete(id);}
+  }
+  private playWeaponAttack(killerId:string,weapon:Weapon){
+    const actor=this.actors.get(killerId);if(!actor)return;
+    actor.play('vh-kill-lunge',true);
+    const graphic=this.add.graphics().setPosition(actor.x+(actor.flipX?-12:12),actor.y-18).setDepth(12).setScale(actor.flipX?-1:1,1);
+    if(weapon==='crowbar'){
+      graphic.lineStyle(5,0x593a28,1);graphic.beginPath();graphic.moveTo(-7,17);graphic.lineTo(1,-8);graphic.strokePath();
+      graphic.lineStyle(4,0xc9d1d8,1);graphic.beginPath();graphic.moveTo(1,-8);graphic.lineTo(7,-18);graphic.lineTo(18,-20);graphic.lineTo(14,-12);graphic.strokePath();
+      graphic.setRotation(-1.05);
+    }else if(weapon==='pistol'){
+      graphic.fillStyle(0x252932,1);graphic.fillRect(-3,-8,23,10);graphic.fillRect(12,-11,15,5);graphic.fillRect(1,0,8,13);
+      graphic.lineStyle(2,0xb8c2cc,1);graphic.strokeRect(-3,-8,23,10);
+      graphic.fillStyle(0xffd36b,.95);graphic.fillCircle(30,-8,5);
+      graphic.setRotation(-.12);
+    }else{
+      graphic.fillStyle(0x65452f,1);graphic.fillRect(-4,0,8,15);
+      graphic.fillStyle(0xe2e9ef,1);graphic.beginPath();graphic.moveTo(0,-22);graphic.lineTo(7,1);graphic.lineTo(-7,1);graphic.closePath();graphic.fillPath();
+      graphic.lineStyle(1,0x8996a3,1);graphic.strokePath();
+      graphic.setRotation(-.85);
+    }
+    this.tweens.add({targets:graphic,rotation:weapon==='pistol'?.18:1.12,alpha:0,duration:weapon==='pistol'?170:230,ease:'Cubic.easeOut',onComplete:()=>graphic.destroy()});
   }
   private setupVision(){
     const canvas=document.createElement('canvas');canvas.className='vision-layer';canvas.setAttribute('aria-hidden','true');
