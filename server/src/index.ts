@@ -589,7 +589,7 @@ io.on('connection', socket => {
       // clearing intent. Without this, the server discards up to one tick of
       // movement at release while the client has already predicted that time,
       // producing the visible backward correction when the stick is lifted.
-      advancePlayer(player,now);
+      advancePlayer(player,now,!!room.sabotage&&room.sabotage.kind==='doors'&&room.sabotage.endsAt>now);
       player.moveX=0;player.moveY=0;player.movementInputAt=0;
       emit(room);
       room.lastStateEmitAt=now;
