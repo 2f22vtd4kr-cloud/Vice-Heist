@@ -59,7 +59,7 @@ export class EstateAudio {
     source.connect(filter);filter.connect(gain);gain.connect(this.sfx);source.start();source.stop(ctx.currentTime+duration+.02);
   }
   play(event:SoundEvent){
-    const ctx=this.getContext();if(!ctx||this.muted||!this.sfx)return;
+    const ctx=this.getContext(),sfx=this.sfx;if(!ctx||this.muted||!sfx)return;
     const notes=CUES[event],now=ctx.currentTime,isStep=event.startsWith('footstep');
     notes.forEach((frequency,index)=>{
       const osc=ctx.createOscillator(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
@@ -70,7 +70,7 @@ export class EstateAudio {
       const peak=isStep?.045:.075;
       gain.gain.setValueAtTime(.0001,now+index*.055);gain.gain.exponentialRampToValueAtTime(peak,now+index*.055+.018);
       gain.gain.exponentialRampToValueAtTime(.0001,now+index*.055+(isStep?.12:.34));
-      osc.connect(filter);filter.connect(gain);gain.connect(this.sfx);osc.start(now+index*.055);osc.stop(now+index*.055+.38);
+      osc.connect(filter);filter.connect(gain);gain.connect(sfx);osc.start(now+index*.055);osc.stop(now+index*.055+.38);
     });
     if(isStep){
       const surface=event.slice('footstep'.length).toLowerCase() as Surface;
