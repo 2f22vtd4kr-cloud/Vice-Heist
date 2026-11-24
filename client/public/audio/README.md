@@ -1,6 +1,6 @@
 # Vice Heist music assets
 
-The spatial playlist expects these browser-compatible MP3 files in this directory:
+The spatial playlist expects these browser-compatible audio files in this directory:
 
 1. `kleiner-finger.m4a` — Bohren & der Club of Gore, supplied M4A master.
 2. `rose-bianche.mp3` — supplied MP3.
