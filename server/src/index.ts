@@ -61,6 +61,52 @@ function blocked(x: number, y: number, radius = 18): boolean {
   const d = radius * 0.7071;
   return [[x-radius,y],[x+radius,y],[x,y-radius],[x,y+radius],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b]) => solid(a,b));
 }
+
+// Authored gate lines are expressed in world coordinates. Each candidate is
+// accepted only when its midpoint is walkable and both jambs are solid in the
+// shipped collision masks. This prevents a visual-map guess from becoming an
+// invisible wall if the source artwork or mask changes.
+type DoorGate = { id:string; name:string; x1:number; y1:number; x2:number; y2:number; nx:number; ny:number; length:number };
+const DOOR_GATE_CANDIDATES = [
+  {id:'helipad-lounge',name:'Helipad passage',x1:690,y1:1435,x2:1010,y2:1435},
+  {id:'lounge-suite',name:'Lounge passage',x1:2650,y1:1760,x2:2940,y2:1760},
+  {id:'suite-pool',name:'Suite passage',x1:5100,y1:360,x2:5100,y2:650},
+  {id:'pool-terrace',name:'Pool passage',x1:6700,y1:520,x2:6700,y2:800},
+  {id:'garage-corridor',name:'Garage passage',x1:650,y1:2920,x2:970,y2:2920},
+  {id:'server-corridor',name:'Server passage',x1:2820,y1:2700,x2:2820,y2:3020},
+  {id:'generator-corridor',name:'Generator passage',x1:4900,y1:2800,x2:4900,y2:3120},
+  {id:'dock-corridor',name:'Dock passage',x1:7300,y1:2500,x2:7600,y2:2500},
+] as const;
+function resolveDoorGate(candidate:typeof DOOR_GATE_CANDIDATES[number]):DoorGate|undefined {
+  const dx=candidate.x2-candidate.x1,dy=candidate.y2-candidate.y1,length=Math.hypot(dx,dy);
+  if(length<100)return undefined;
+  const tx=dx/length,ty=dy/length,nx=-ty,ny=tx,mx=(candidate.x1+candidate.x2)/2,my=(candidate.y1+candidate.y2)/2;
+  // The center must be traversable and the ends must meet solid wall, not
+  // terminate in open floor. A small tolerance handles antialiased masks.
+  if(solid(mx,my))return undefined;
+  const jambA=solid(candidate.x1+tx*22,candidate.y1+ty*22)||solid(candidate.x1-tx*22,candidate.y1-ty*22);
+  const jambB=solid(candidate.x2+tx*22,candidate.y2+ty*22)||solid(candidate.x2-tx*22,candidate.y2-ty*22);
+  if(!jambA||!jambB)return undefined;
+  return {...candidate,nx,ny,length};
+}
+const DOOR_GATES:DoorGate[]=DOOR_GATE_CANDIDATES.map(resolveDoorGate).filter((gate):gate is DoorGate=>!!gate);
+if(!DOOR_GATES.length)console.warn('[Vice Heist] No authored door gates matched the current collision masks; door sabotage remains safely inactive.');
+function gatePointBlocked(x:number,y:number,gate:DoorGate):boolean {
+  const along=(x-gate.x1)*(gate.x2-gate.x1)/gate.length+(y-gate.y1)*(gate.y2-gate.y1)/gate.length;
+  if(along<0||along>gate.length)return false;
+  const across=Math.abs((x-gate.x1)*gate.nx+(y-gate.y1)*gate.ny);
+  return across<13;
+}
+function doorBlocked(x:number,y:number,doorsActive:boolean):boolean {
+  return doorsActive&&DOOR_GATES.some(gate=>gatePointBlocked(x,y,gate));
+}
+function blockedWithDoors(x:number,y:number,radius=18,doorsActive=false):boolean {
+  if(blocked(x,y,radius))return true;
+  if(!doorsActive)return false;
+  const d=radius*0.7071;
+  return [[x-radius,y],[x+radius,y],[x,y-radius],[x,y+radius],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]]
+    .some(([a,b])=>DOOR_GATES.some(gate=>gatePointBlocked(a,b,gate)));
+}
 type Vent = { id:string; x:number; y:number; sector:number };
 const VENT_ANCHORS = [
   {id:'helipad',sector:0,x:800,y:700},
@@ -89,7 +135,7 @@ function resolveVentAnchor(anchor:typeof VENT_ANCHORS[number]):Vent {
 }
 const VENTS:Vent[]=VENT_ANCHORS.map(resolveVentAnchor);
 
-function advancePlayer(p: Player, now: number) {
+function advancePlayer(p: Player, now: number, doorsActive=false) {
   const dt = clamp((now - p.lastMove) / 1000, 0, 0.06);
   p.lastMove = now;
   // Living players run at full speed; eliminated players remain mobile ghosts
@@ -107,8 +153,9 @@ function advancePlayer(p: Player, now: number) {
   const stepX = dx / steps, stepY = dy / steps;
   for (let i = 0; i < steps; i++) {
     const nextX = p.x + stepX, nextY = p.y + stepY;
-    if (!blocked(nextX, p.y)) p.x = nextX;
-    if (!blocked(p.x, nextY)) p.y = nextY;
+    const leavingDoor=doorsActive&&DOOR_GATES.some(g=>gatePointBlocked(p.x,p.y,g));
+    if (!blocked(nextX,p.y) && (!blockedWithDoors(nextX,p.y,18,doorsActive)||leavingDoor)) p.x = nextX;
+    if (!blocked(p.x,nextY) && (!blockedWithDoors(p.x,nextY,18,doorsActive)||leavingDoor)) p.y = nextY;
   }
 }
 const rooms = new Map<string, Room>();
@@ -159,7 +206,7 @@ function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,co
 function snapshot(r: Room, viewer: string): Snapshot {
   const p = r.players.get(viewer);
   return { code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:p?.role,isHost:r.host===viewer,
-    tasks:r.tasks,taskTotal:r.tasks.length,vents:p?.role==='MOLE'?VENTS:[],selfVentCooldownUntil:p?.role==='MOLE'?(r.ventCooldownUntil.get(viewer)||0):0,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
+    tasks:r.tasks,taskTotal:r.tasks.length,vents:p?.role==='MOLE'?VENTS:[],doorGates:DOOR_GATES.map(({id,name,x1,y1,x2,y2})=>({id,name,x1,y1,x2,y2})),selfVentCooldownUntil:p?.role==='MOLE'?(r.ventCooldownUntil.get(viewer)||0):0,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
     selfCooldownUntil:p?.cooldownUntil || 0,selfEmergencyUsed:p?.emergencyUsed || false,
     emergencyCooldownUntil:r.emergencyCooldownUntil };
 }
@@ -181,7 +228,7 @@ function start(r: Room): boolean {
   r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();r.botSocialCooldowns.clear();r.botSocialPauseUntil.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';p.weapon=undefined;});
   const moleCount = list.length >= 8 ? 2 : 1;
-  const shuffled = [...list].sort(() => random() - 0.5);
+  const shuffled = process.env.VICE_HEIST_TEST_FORCE_HUMAN_MOLE==='true' ? [list.find(p=>!p.bot)!,...list.filter(p=>p.bot)] : [...list].sort(() => random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
   const weaponTypes:Weapon[]=['crowbar','pistol','knife'];
   for(const p of list.filter(player=>player.role==='MOLE')){const hash=Array.from(p.id).reduce((value,char)=>((value*31+char.charCodeAt(0))>>>0),7);p.weapon=weaponTypes[hash%weaponTypes.length];}
@@ -204,21 +251,22 @@ const botNeighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as 
 function cellCenter(index:number){return{x:(index%BOT_COLS+.5)*BOT_CELL,y:(Math.floor(index/BOT_COLS)+.5)*BOT_CELL};}
 function cellAt(x:number,y:number){return Math.max(0,Math.min(BOT_ROWS-1,Math.floor(y/BOT_CELL)))*BOT_COLS+Math.max(0,Math.min(BOT_COLS-1,Math.floor(x/BOT_CELL)));}
 function nearestWalkableCell(index:number):number{
-  const origin=cellCenter(index);if(!blocked(origin.x,origin.y,18))return index;
+  const origin=cellCenter(index);if(!blockedWithDoors(origin.x,origin.y,18,activeDoorsForRoom))return index;
   for(let radius=1;radius<=12;radius++)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
     if(Math.max(Math.abs(dx),Math.abs(dy))!==radius)continue;
     const x=index%BOT_COLS+dx,y=Math.floor(index/BOT_COLS)+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
-    const candidate=y*BOT_COLS+x,point=cellCenter(candidate);if(!blocked(point.x,point.y,18))return candidate;
+    const candidate=y*BOT_COLS+x,point=cellCenter(candidate);if(!blockedWithDoors(point.x,point.y,18,activeDoorsForRoom))return candidate;
   }return index;
 }
+let activeDoorsForRoom=false;
 function findBotPath(from:{x:number;y:number},to:{x:number;y:number}):number[]{
   const start=nearestWalkableCell(cellAt(from.x,from.y)),goal=nearestWalkableCell(cellAt(to.x,to.y));if(start===goal)return[goal];
   const previous=new Int32Array(BOT_COLS*BOT_ROWS);previous.fill(-2);previous[start]=-1;
   const queue=new Int32Array(BOT_COLS*BOT_ROWS);let head=0,tail=0;queue[tail++]=start;
   while(head<tail){const current=queue[head++];if(current===goal)break;const cx=current%BOT_COLS,cy=Math.floor(current/BOT_COLS);
     for(const[dx,dy]of botNeighbors){const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;const next=y*BOT_COLS+x;if(previous[next]!==-2)continue;
-      const point=cellCenter(next);if(blocked(point.x,point.y,18))continue;
-      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
+      const point=cellCenter(next);if(blockedWithDoors(point.x,point.y,18,activeDoorsForRoom))continue;
+      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blockedWithDoors(sideA.x,sideA.y,18,activeDoorsForRoom)||blockedWithDoors(sideB.x,sideB.y,18,activeDoorsForRoom))continue;}
       previous[next]=current;queue[tail++]=next;
     }
   }
@@ -241,8 +289,8 @@ function nearestReachablePoint(from:{x:number;y:number},target:{x:number;y:numbe
     for(const[dx,dy]of botNeighbors){
       const x=cx+dx,y=cy+dy;if(x<0||x>=BOT_COLS||y<0||y>=BOT_ROWS)continue;
       const next=y*BOT_COLS+x;if(visited[next])continue;
-      const candidate=cellCenter(next);if(blocked(candidate.x,candidate.y,18))continue;
-      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blocked(sideA.x,sideA.y,18)||blocked(sideB.x,sideB.y,18))continue;}
+      const candidate=cellCenter(next);if(blockedWithDoors(candidate.x,candidate.y,18,activeDoorsForRoom))continue;
+      if(dx&&dy){const sideA=cellCenter(cy*BOT_COLS+x),sideB=cellCenter(y*BOT_COLS+cx);if(blockedWithDoors(sideA.x,sideA.y,18,activeDoorsForRoom)||blockedWithDoors(sideB.x,sideB.y,18,activeDoorsForRoom))continue;}
       visited[next]=1;queue[tail++]=next;
     }
   }
@@ -263,8 +311,8 @@ function steerBotToward(bot:Player,target:{x:number;y:number},step:number):boole
     // checking X and Y independently from the old position can cut a diagonal
     // corner and leave an NPC inside a solid mask pixel.
     let candidateX=bot.x,candidateY=bot.y;
-    if(!blocked(nx,candidateY,18))candidateX=nx;
-    if(!blocked(candidateX,ny,18))candidateY=ny;
+    if(!blockedWithDoors(nx,candidateY,18,activeDoorsForRoom))candidateX=nx;
+    if(!blockedWithDoors(candidateX,ny,18,activeDoorsForRoom))candidateY=ny;
     if(Math.hypot(candidateX-bot.x,candidateY-bot.y)<0.1)continue;
     const score=Math.hypot(target.x-candidateX,target.y-candidateY)+Math.abs(offset)*18;
     if(!best||score<best.score)best={x:candidateX,y:candidateY,score};
@@ -368,6 +416,7 @@ async function botReply(r: Room, sender: Player, text: string) {
   }
 }
 function botsTick(r: Room, now: number) {
+  activeDoorsForRoom=!!r.sabotage&&r.sabotage.kind==='doors'&&r.sabotage.endsAt>now;
   const dtSeconds=Math.min(0.1,Math.max(0,(now-r.lastTick)/1000));
   if(r.phase==='PLAYING'){
     const alive=[...r.players.values()].filter(p=>p.alive);
@@ -542,7 +591,7 @@ io.on('connection', socket => {
       // clearing intent. Without this, the server discards up to one tick of
       // movement at release while the client has already predicted that time,
       // producing the visible backward correction when the stick is lifted.
-      advancePlayer(player,now);
+      advancePlayer(player,now,!!room.sabotage&&room.sabotage.kind==='doors'&&room.sabotage.endsAt>now);
       player.moveX=0;player.moveY=0;player.movementInputAt=0;
       emit(room);
       room.lastStateEmitAt=now;
@@ -606,7 +655,7 @@ io.on('connection', socket => {
     task.done=true;player.tasks++;room.taskStartedAt.delete(key);room.taskHoldStartedAt.delete(key);room.taskSwipeStartedAt.delete(key);room.taskSwipeDuration.delete(key);notice(room,player.name+' completed '+task.label+'.');finish(room);emit(room);respond({ok:true});
   });
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now(),weapon:player.weapon||'crowbar'};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420&&hasLineOfSight(witness,player))room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
-  socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
+  socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';if(type==='doors'&&!DOOR_GATES.length){socket.emit('notice','Door lockdown is unavailable: no safe gate geometry matched the collision map.');return;}room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: '+DOOR_GATES.length+' doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('vent:travel',(input?:{ventId?:unknown},ack?:(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>void)=>{
     const respond=(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
     if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='MOLE'){respond({ok:false,error:'Only a living Mole can use the vent network.'});return;}
@@ -629,5 +678,5 @@ io.on('connection', socket => {
   socket.on('leave',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.players.size===0||![...room.players.values()].some(p=>!p.bot))rooms.delete(room.code);else{if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||'';if(room.phase==='PLAYING')finish(room);emit(room);}player=undefined;room=undefined;});
   socket.on('disconnect',()=>{if(room&&player){player.connected=false;player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=Date.now();player.socketId=undefined;if(room.host===player.id)room.host=[...room.players.values()].find(p=>!p.bot&&p.connected)?.id||room.host;const disconnectedPlayer=player,disconnectedRoom=room;setTimeout(()=>{if(!disconnectedPlayer.connected&&disconnectedRoom.players.get(disconnectedPlayer.id)===disconnectedPlayer){disconnectedRoom.players.delete(disconnectedPlayer.id);if(disconnectedRoom.players.size===0||![...disconnectedRoom.players.values()].some(p=>!p.bot))rooms.delete(disconnectedRoom.code);else{if(disconnectedRoom.phase==='PLAYING')finish(disconnectedRoom);emit(disconnectedRoom);}}},30_000);emit(room);}});
 });
-setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=50){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
+setInterval(()=>{const now=Date.now();for(const r of rooms.values()){if(now-r.lastTick>=50){botsTick(r,now);r.lastTick=now;}if(r.sabotage&&now>r.sabotage.endsAt)r.sabotage=undefined;if(r.phase==='PLAYING'){for(const p of r.players.values())if(!p.bot)advancePlayer(p,now,!!r.sabotage&&r.sabotage.kind==='doors'&&r.sabotage.endsAt>now);}else{for(const p of r.players.values())if(!p.bot){p.moveX=0;p.moveY=0;p.lastMove=now;}}if(r.phase!=='LOBBY'&&now-r.lastStateEmitAt>=50){emit(r);r.lastStateEmitAt=now;}}},50);
 http.listen(PORT,'0.0.0.0',()=>console.log(`Vice Heist listening on ${PORT}`));
