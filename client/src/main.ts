@@ -428,6 +428,35 @@ function openMapOverlay(){
   m.innerHTML=`<section class="meetingbox art-panel map-panel" role="dialog" aria-modal="true" aria-label="Estate map"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · 4 × 2 SECTORS</p><h3>Estate blueprint</h3></div><button class="panel-close" id="map-close" aria-label="Close map">×</button></header><div class="estate-blueprint"><div class="blueprint-grid">${tiles}</div><div class="blueprint-markers">${tasksOnMap}${players}</div></div><div class="blueprint-legend"><span><i class="blueprint-player self"></i> You / crew</span><span><i class="blueprint-task"></i> Objective</span></div>${latest.sabotage&&latest.sabotage.endsAt>Date.now()?`<div class="sabotage-status"><img src="${artUrl(latest.sabotage.kind==='doors'?'sabotage_pin_doors':'sabotage_pin_lights')}" alt=""><b>${escapeHtml(latest.sabotage.kind.toUpperCase())} SABOTAGE</b></div>`:''}<h4 class="map-section-title">ESTATE OBJECTIVES</h4><div class="map-task-list">${tasks}</div></section>`;
   m.querySelector('#map-close')?.addEventListener('click',()=>m.innerHTML='');
 }
+const CAMERA_SECTORS=[
+  {label:'Helipad / security',tile:1},{label:'VIP lounge',tile:2},
+  {label:'Master suite / vault',tile:3},{label:'Pool / terrace',tile:4},
+  {label:'Garage',tile:5},{label:'Server room',tile:6},
+  {label:'Generator bay',tile:7},{label:'Speedboat dock',tile:8},
+] as const;
+let cameraIndex=0;
+let cameraOpen=false;
+function updateCameraFeed(){
+  if(!cameraOpen||!latest)return;
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
+  const camera=CAMERA_SECTORS[cameraIndex],col=(camera.tile-1)%4,row=Math.floor((camera.tile-1)/4);
+  const left=col*2048,top=row*2048;
+  const title=m.querySelector('#cctv-title');if(title)title.textContent='CAM '+String(cameraIndex+1).padStart(2,'0')+' · '+camera.label.toUpperCase();
+  const image=m.querySelector<HTMLImageElement>('#cctv-image');if(image)image.src='/assets/map/take-'+camera.tile+'.webp';
+  const markers=m.querySelector('#cctv-markers');
+  if(markers)markers.innerHTML=latest.players.filter(p=>p.x>=left&&p.x<left+2048&&p.y>=top&&p.y<top+2048).map(p=>'<span class="cctv-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" title="'+escapeHtml(p.name)+'" style="left:'+((p.x-left)/2048*100)+'%;top:'+((p.y-top)/2048*100)+'%"><i style="background:'+escapeHtml(p.color)+'"></i><b>'+escapeHtml(p.name)+'</b></span>').join('');
+  const count=latest.players.filter(p=>p.x>=left&&p.x<left+2048&&p.y>=top&&p.y<top+2048).length;
+  const status=m.querySelector('#cctv-status');if(status)status.textContent='LIVE SERVER FEED · '+count+' ACTORS DETECTED';
+}
+function openCameraOverlay(){
+  const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
+  cameraOpen=true;cameraIndex=0;
+  m.innerHTML='<section class="meetingbox art-panel cctv-panel" role="dialog" aria-modal="true" aria-label="Security camera network"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · SECURITY NETWORK</p><h3>Live camera monitor</h3></div><button class="panel-close" id="cctv-close" aria-label="Close cameras">×</button></header><div class="cctv-frame"><div class="cctv-frame-head"><b id="cctv-title"></b><span>REC ●</span></div><div class="cctv-feed"><img id="cctv-image" alt="Camera sector view"><div id="cctv-markers" class="cctv-markers"></div><div class="cctv-scanlines"></div></div><div class="cctv-status" id="cctv-status"></div></div><div class="cctv-controls"><button id="cctv-prev" class="secondary">‹ PREVIOUS</button><span id="cctv-index">01 / 08</span><button id="cctv-next" class="secondary">NEXT ›</button></div><p class="muted">Sector camera overlays use authoritative player positions from the live multiplayer snapshot.</p></section>';
+  m.querySelector('#cctv-close')?.addEventListener('click',()=>{cameraOpen=false;m.innerHTML='';});
+  m.querySelector('#cctv-prev')?.addEventListener('click',()=>{cameraIndex=(cameraIndex+CAMERA_SECTORS.length-1)%CAMERA_SECTORS.length;updateCameraFeed();const index=m.querySelector('#cctv-index');if(index)index.textContent=String(cameraIndex+1).padStart(2,'0')+' / 08';});
+  m.querySelector('#cctv-next')?.addEventListener('click',()=>{cameraIndex=(cameraIndex+1)%CAMERA_SECTORS.length;updateCameraFeed();const index=m.querySelector('#cctv-index');if(index)index.textContent=String(cameraIndex+1).padStart(2,'0')+' / 08';});
+  updateCameraFeed();
+}
 function openSettingsOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
   m.innerHTML=`<div class="meetingbox art-panel settings-panel"><button class="panel-close" id="settings-close">×</button><p class="eyebrow">FIELD SETTINGS</p><h3>Game settings</h3><div class="settings-row"><img src="${artUrl('btn_settings')}" alt=""><span>Sound</span><button id="settings-sound">${muted?'OFF':'ON'}</button></div><label class="vh-audio-setting">Effects volume <input id="vh-sfx-volume" type="range" min="0" max="100" value="80"></label><label class="vh-audio-setting">Ambience volume <input id="vh-ambience-volume" type="range" min="0" max="100" value="32"></label><div class="settings-row"><img src="${artUrl('joystick_base')}" alt=""><span>Movement control</span><button id="vh-handedness">${leftHanded?'Left-hand joystick':'Right-hand joystick'}</button></div><div class="settings-row"><img src="${artUrl('overlay_cctv_monitor')}" alt=""><span>Security cameras</span><small>Camera network is not yet connected to live server state.</small></div><div class="settings-row"><img src="${artUrl('vent_closed')}" alt=""><span>Vent network</span><small>Vent artwork is present; traversal and collision routing are not yet implemented.</small></div><div class="settings-row"><img src="${artUrl('door_vertical_shut')}" alt=""><span>Door lockdown</span><small>Door sabotage visuals exist; physical door gates are not yet implemented.</small></div><button class="primary" id="settings-done">DONE</button></div>`;
