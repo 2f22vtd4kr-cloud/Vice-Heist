@@ -31,16 +31,24 @@ try{
   const stateDeadline=Date.now()+3000;
   while((!latest||!latest.vents)&&Date.now()<stateDeadline)await wait(50);
   assert.ok(latest,'initial state snapshot should arrive');
-  assert.equal(latest.vents.length,8,'all eight sectors should expose a vent anchor');
-  const sectors=new Set(latest.vents.map(v=>v.sector));
-  assert.equal(sectors.size,8,'vent network should cover all eight sectors');
-  for(const vent of latest.vents){
-    assert.ok(vent.x>=0&&vent.x<8192&&vent.y>=0&&vent.y<4096,'vent coordinates must stay inside the estate');
-    assert.ok(vent.id,'each vent must have a stable identifier');
+  assert.ok(Array.isArray(latest.vents),'snapshot should include a vent list');
+  if(latest.selfRole==='MOLE'){
+    assert.equal(latest.vents.length,8,'Mole should receive all eight sector vent anchors');
+    const sectors=new Set(latest.vents.map(v=>v.sector));
+    assert.equal(sectors.size,8,'vent network should cover all eight sectors');
+    for(const vent of latest.vents){
+      assert.ok(vent.x>=0&&vent.x<8192&&vent.y>=0&&vent.y<4096,'vent coordinates must stay inside the estate');
+      assert.ok(vent.id,'each vent must have a stable identifier');
+    }
+    const denied=await ack('vent:travel',{ventId:'not-a-real-vent'});
+    assert.equal(denied.ok,false,'unknown vent identifiers must be rejected');
+    assert.match(denied.error,/not part of this estate/,'unknown vent identifiers must be rejected');
+  }else{
+    assert.equal(latest.vents.length,0,'Crew snapshots must not reveal hidden vent locations');
+    const denied=await ack('vent:travel',{ventId:'helipad'});
+    assert.equal(denied.ok,false,'Crew must not use the Mole vent network');
+    assert.match(denied.error,/Only a living Mole/,'vent access must be role-gated');
   }
-  const denied=await ack('vent:travel',{ventId:'not-a-real-vent'});
-  assert.equal(denied.ok,false,'unknown vent identifiers must be rejected');
-  assert.match(denied.error,/Only a living Mole|not part of this estate/,'vent access must be role- and identifier-gated');
   console.log('Vent network regression passed: eight sector anchors are published and unauthorized/unknown travel is rejected.');
 }finally{
   socket?.close();child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve));
