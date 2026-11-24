@@ -30,7 +30,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>;
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -112,7 +112,7 @@ function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,co
 function snapshot(r: Room, viewer: string): Snapshot {
   const p = r.players.get(viewer);
   return { code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:p?.role,isHost:r.host===viewer,
-    tasks:r.tasks,taskTotal:r.tasks.length,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,
+    tasks:r.tasks,taskTotal:r.tasks.length,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
     selfCooldownUntil:p?.cooldownUntil || 0,selfEmergencyUsed:p?.emergencyUsed || false,
     emergencyCooldownUntil:r.emergencyCooldownUntil };
 }
@@ -130,7 +130,7 @@ function addPlayer(r: Room, socketId: string, name: string, bot = false): Player
 }
 function start(r: Room): boolean {
   const list = [...r.players.values()]; if (list.length < 4) return false;
-  r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
+  r.phase='PLAYING'; r.winner=undefined; r.meeting=undefined; r.sabotage=undefined; r.lastKill=undefined; r.emergencyCooldownUntil=0;r.roundStartedAt=Date.now();
   r.tasks=TASKS.map(t=>({...t,done:false}));r.suspicions.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';});
   const moleCount = list.length >= 8 ? 2 : 1;
@@ -302,21 +302,19 @@ function botsTick(r: Room, now: number) {
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
         const humanTarget=crew.find(entry=>!entry.candidate.bot);
-        const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1150);
-        const retain=!!current&&!!previous&&now-previous.selectedAt<5500&&current.distance<1350;
-        // In a player-vs-NPC match, a killer bot must not spend its hunt
-        // repeatedly changing between other NPCs while the human is alive.
-        const selected=humanTarget|| (retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]));
-        const target=selected?.candidate;
-        if(target){
-          if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
-          // Follow the selected crew member even when walls block line of sight.
-          // Collision-aware pathfinding handles obstacles; line of sight is required only for elimination.
-          moveBotToward(bot,target,370,dtSeconds,'hunt:'+target.id,now);
+        // A Mole NPC should blend into the estate instead of beelining toward
+        // the human from across the map. It only commits to a hunt at close
+        // range, with a low per-tick decision chance; an active short hunt is
+        // retained briefly to avoid visibly twitching between targets.
+        const retain=!!current&&!!previous&&now-previous.selectedAt<3_500&&current.distance<650;
+        const commit=retain||!!humanTarget&&humanTarget.distance<620&&random()<0.015;
+        if(commit&&humanTarget){
+          if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
+          moveBotToward(bot,humanTarget.candidate,260,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
-          const patrol=TASKS[(Math.floor(now/8000)+bot.name.length)%TASKS.length];
-          moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
+          const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
+          moveBotToward(bot,patrol,218,dtSeconds,'patrol:'+patrol.id,now);
         }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate)
@@ -330,7 +328,7 @@ function botsTick(r: Room, now: number) {
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
-          victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
+          r.lastKill={killerId:bot.id,victimId:victim.id,at:now};victim.corpseX=victim.x;victim.corpseY=victim.y;victim.alive=false;victim.reported=false;victim.moveX=0;victim.moveY=0;victim.movementInputAt=0;bot.cooldownUntil=now+20_000;
           for(const witness of r.players.values())if(witness.bot&&witness.id!==bot.id&&witness.alive&&Math.hypot(witness.x-bot.x,witness.y-bot.y)<420)r.suspicions.set(bot.id,(r.suspicions.get(bot.id)||0)+2);
           notice(r,`${victim.name} was eliminated.`);finish(r);
         }
@@ -411,8 +409,28 @@ io.on('connection', socket => {
     player.moveX=dx;player.moveY=dy;player.movementInputAt=now;
     reply({ok:true,x:player.x,y:player.y});
   });
-  socket.on('use',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=nearestTask(room,player);if(t&&player.role==='CREW'){t.done=true;player.tasks++;notice(room,`${player.name} completed ${t.label}.`);finish(room);emit(room);}else socket.emit('notice','Move closer to an unfinished task.');});
-  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
+  socket.on('use',(input?:{taskId?:unknown;answer?:unknown},ack?:(result:{ok:boolean;error?:string})=>void)=>{
+    const respond=(result:{ok:boolean;error?:string})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='CREW'){respond({ok:false,error:'This operation is unavailable.'});return;}
+    const taskId=typeof input?.taskId==='string'?input.taskId:'';
+    const task=room.tasks.find(t=>t.id===taskId&&!t.done);
+    if(!task||Math.hypot(task.x-player.x,task.y-player.y)>=150){respond({ok:false,error:'Move closer to an unfinished task.'});return;}
+    const answer=input?.answer;
+    const numeric=typeof answer==='number'&&Number.isFinite(answer)?answer:NaN;
+    const valid:Record<string,()=>boolean>={
+      vault:()=>answer==='2741',
+      server:()=>answer==='blue,gold,red,teal',
+      helipad:()=>numeric>=250&&numeric<=1500,
+      generator:()=>answer==='1011',
+      dock:()=>numeric>=2000&&numeric<=10000,
+      bar:()=>answer==='lime,ice,rum',
+      pool:()=>numeric>=68&&numeric<=76,
+      garage:()=>numeric>=1600&&numeric<=10000,
+    };
+    if(!valid[task.id]?.()){respond({ok:false,error:'That operation did not pass verification. Try the puzzle again.'});return;}
+    task.done=true;player.tasks++;notice(room,`${player.name} completed ${task.label}.`);finish(room);emit(room);respond({ok:true});
+  });
+  socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420)room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
   socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.corpseX-player.x,t.corpseY-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
   socket.on('emergency',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;if(player.emergencyUsed||Date.now()<room.emergencyCooldownUntil){socket.emit('notice','Emergency protocol is unavailable right now.');return;}player.emergencyUsed=true;room.emergencyCooldownUntil=Date.now()+60_000;beginMeeting(room,`${player.name} called an emergency meeting.`);});
