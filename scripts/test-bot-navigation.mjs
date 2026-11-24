@@ -90,6 +90,7 @@ try {
   // A human crew member is the priority target for killer NPCs in solo QA.
   if(latest.selfRole==='CREW'){
     assert.equal(humanPlayer.alive,false,'when the human is Crew, the killer NPC must successfully eliminate the human during the 25-second bot hunt regression');
+    assert.equal(latest.phase,'MEETING','Crew NPCs should discover and report the eliminated human during the solo regression');
   }
   assert.deepEqual(stuckBots, [], 'living bots must not remain stationary away from tasks or other players: ' + stuckBots.join(', '));
   console.log('Bot navigation regression passed: ' + movedBots.length + '/' + livingBots.length + ' surviving bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
