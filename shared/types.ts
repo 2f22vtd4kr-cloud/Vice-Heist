@@ -9,7 +9,7 @@ export type Player = {
   aiKey?: string; lastChatAt?: number;
 };
 export type PublicPlayer = Pick<Player, 'id' | 'name' | 'color' | 'x' | 'y' | 'alive' | 'reported' | 'bot' | 'tasks' | 'corpseX' | 'corpseY'>;
-export type Task = { id: string; label: string; x: number; y: number; done: boolean; zone: number };
+export type Task = { id: string; label: string; x: number; y: number; done: boolean; zone: number; challenge?: string };
 export type Meeting = { reason: string; votes: Record<string, string>; endsAt: number };
 export type Snapshot = {
   code: string; phase: Phase; players: PublicPlayer[]; selfRole?: Role; isHost: boolean;
