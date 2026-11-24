@@ -228,7 +228,7 @@ function start(r: Room): boolean {
   r.tasks=createTasks();r.suspicions.clear();r.taskStartedAt.clear();r.taskHoldStartedAt.clear();r.taskSwipeStartedAt.clear();r.taskSwipeDuration.clear();r.botChatCooldowns.clear();r.botSocialCooldowns.clear();r.botSocialPauseUntil.clear();botRoutes.clear();botTaskAssignments.clear();botHuntTargets.clear();ghostWanderTargets.clear();
   list.forEach((p,i)=>{p.alive=true;p.reported=false;p.tasks=0;p.x=2800+(i%4)*70;p.y=2000+Math.floor(i/4)*65;p.corpseX=p.x;p.corpseY=p.y;p.lastMove=Date.now();p.movementInputAt=0;p.moveX=0;p.moveY=0;p.movementEpoch=0;p.movementRequestId=0;p.cooldownUntil=r.roundStartedAt+12_000;p.emergencyUsed=false;p.role='CREW';p.weapon=undefined;});
   const moleCount = list.length >= 8 ? 2 : 1;
-  const shuffled = [...list].sort(() => random() - 0.5);
+  const shuffled = process.env.VICE_HEIST_TEST_FORCE_HUMAN_MOLE==='true' ? [list.find(p=>!p.bot)!,...list.filter(p=>p.bot)] : [...list].sort(() => random() - 0.5);
   for (const p of shuffled.slice(0,moleCount)) p.role='MOLE';
   const weaponTypes:Weapon[]=['crowbar','pistol','knife'];
   for(const p of list.filter(player=>player.role==='MOLE')){const hash=Array.from(p.id).reduce((value,char)=>((value*31+char.charCodeAt(0))>>>0),7);p.weapon=weaponTypes[hash%weaponTypes.length];}
