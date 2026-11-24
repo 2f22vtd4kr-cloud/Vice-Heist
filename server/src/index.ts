@@ -325,7 +325,8 @@ function botsTick(r: Room, now: number) {
             // Preserve wall occlusion at normal attack range. At true sprite
             // overlap, tolerate a one-cell mask edge discrepancy so the NPC
             // cannot orbit a player it has physically reached.
-            return distance<125&&(hasLineOfSight(bot,p)||distance<72);
+            // Reliable close-contact attack even when collision samples differ slightly.
+            return distance<150&&(hasLineOfSight(bot,p)||distance<108);
           })
           .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
         if(victim&&now>=Math.max(bot.cooldownUntil,r.roundStartedAt+12_000)){
