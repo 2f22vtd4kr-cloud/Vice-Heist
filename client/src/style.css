@@ -753,3 +753,9 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .hud-tools button{width:34px;height:34px;padding:3px}
   .hudtop>span{display:none}
 }
+
+/* Mole vent interaction */
+.actions #vent{border-color:#8ed6c7;background:#173b39ed;color:#d8fff5}
+
+.radar-vent{position:absolute;width:5px;height:5px;border:1px solid #c7fff4;background:#4ccbb5;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 5px #4ccbb5}
+.blueprint-vent{position:absolute;width:9px;height:9px;background:#4ccbb5;border:2px solid #d8fff5;border-radius:2px;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 8px #4ccbb5}

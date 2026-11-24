@@ -10,10 +10,11 @@ export type Player = {
 };
 export type PublicPlayer = Pick<Player, 'id' | 'name' | 'color' | 'x' | 'y' | 'alive' | 'reported' | 'bot' | 'tasks' | 'corpseX' | 'corpseY'>;
 export type Task = { id: string; label: string; x: number; y: number; done: boolean; zone: number; challenge?: string };
+export type Vent = { id:string; x:number; y:number; sector:number };
 export type Meeting = { reason: string; votes: Record<string, string>; endsAt: number };
 export type Snapshot = {
   code: string; phase: Phase; players: PublicPlayer[]; selfRole?: Role; isHost: boolean;
-  tasks: Task[]; taskTotal: number; meeting?: Meeting; winner?: 'CREW' | 'MOLE';
+  tasks: Task[]; taskTotal: number; vents: Vent[]; selfVentCooldownUntil: number; meeting?: Meeting; winner?: 'CREW' | 'MOLE';
   sabotage?: { kind: string; endsAt: number };
   lastKill?: { killerId: string; victimId: string; at: number };
   selfCooldownUntil: number; selfEmergencyUsed: boolean; emergencyCooldownUntil: number;

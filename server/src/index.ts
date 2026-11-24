@@ -34,7 +34,7 @@ type Room = {
   code: string; phase: 'LOBBY' | 'PLAYING' | 'MEETING' | 'GAME_OVER';
   players: Map<string, Player>; tasks: Task[]; meeting?: Meeting;
   winner?: 'CREW' | 'MOLE'; sabotage?: { kind: string; endsAt: number };
-  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
+  lastTick: number; lastStateEmitAt: number; host: string; emergencyCooldownUntil: number; roundStartedAt: number; suspicions: Map<string, number>; taskStartedAt: Map<string, number>; taskHoldStartedAt: Map<string, number>; taskSwipeStartedAt: Map<string, number>; taskSwipeDuration: Map<string, number>; ventCooldownUntil: Map<string, number>; lastKill?: { killerId: string; victimId: string; at: number };
 };
 
 // Keep a compact one-bit mask per sector instead of retaining an 8192×4096 RGBA atlas.
@@ -61,6 +61,34 @@ function blocked(x: number, y: number, radius = 18): boolean {
   const d = radius * 0.7071;
   return [[x-radius,y],[x+radius,y],[x,y-radius],[x,y+radius],[x-d,y-d],[x+d,y-d],[x-d,y+d],[x+d,y+d]].some(([a,b]) => solid(a,b));
 }
+type Vent = { id:string; x:number; y:number; sector:number };
+const VENT_ANCHORS = [
+  {id:'helipad',sector:0,x:800,y:700},
+  {id:'lounge',sector:1,x:1000,y:1000},
+  {id:'suite',sector:2,x:1400,y:1000},
+  {id:'pool',sector:3,x:180,y:850},
+  {id:'garage',sector:4,x:1000,y:1000},
+  {id:'server',sector:5,x:1300,y:1100},
+  {id:'generator',sector:6,x:1000,y:1000},
+  {id:'dock',sector:7,x:250,y:1100},
+] as const;
+// Vent anchors are authored against the eight sector illustrations. Resolve
+// each to the nearest collision-safe floor point at boot, never into a wall.
+function resolveVentAnchor(anchor:typeof VENT_ANCHORS[number]):Vent {
+  const col=anchor.sector%4,row=Math.floor(anchor.sector/4),baseX=col*2048,baseY=row*2048;
+  for(let radius=0;radius<=420;radius+=12){
+    const samples=radius===0?1:Math.max(16,Math.ceil(radius*0.22));
+    for(let i=0;i<samples;i++){
+      const angle=i/samples*Math.PI*2;
+      const x=baseX+anchor.x+Math.cos(angle)*radius,y=baseY+anchor.y+Math.sin(angle)*radius;
+      if(x<baseX+24||x>=baseX+2024||y<baseY+24||y>=baseY+2024)continue;
+      if(!blocked(x,y,24))return {id:anchor.id,x:Math.round(x),y:Math.round(y),sector:anchor.sector};
+    }
+  }
+  throw new Error('No collision-safe vent location found in sector '+(anchor.sector+1)+' ('+anchor.id+').');
+}
+const VENTS:Vent[]=VENT_ANCHORS.map(resolveVentAnchor);
+
 function advancePlayer(p: Player, now: number) {
   const dt = clamp((now - p.lastMove) / 1000, 0, 0.06);
   p.lastMove = now;
@@ -130,14 +158,14 @@ function publicPlayer(p: Player): PublicPlayer { return { id:p.id,name:p.name,co
 function snapshot(r: Room, viewer: string): Snapshot {
   const p = r.players.get(viewer);
   return { code:r.code,phase:r.phase,players:[...r.players.values()].map(publicPlayer),selfRole:p?.role,isHost:r.host===viewer,
-    tasks:r.tasks,taskTotal:r.tasks.length,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
+    tasks:r.tasks,taskTotal:r.tasks.length,vents:p?.role==='MOLE'?VENTS:[],selfVentCooldownUntil:p?.role==='MOLE'?(r.ventCooldownUntil.get(viewer)||0):0,meeting:r.meeting,winner:r.winner,sabotage:r.sabotage,lastKill:r.lastKill,
     selfCooldownUntil:p?.cooldownUntil || 0,selfEmergencyUsed:p?.emergencyUsed || false,
     emergencyCooldownUntil:r.emergencyCooldownUntil };
 }
 function emit(r: Room) { for (const p of r.players.values()) if(!p.bot&&p.connected&&p.socketId) io.sockets.sockets.get(p.socketId)?.emit('state', snapshot(r,p.id)); }
 function notice(r: Room, text: string) { io.to(r.code).emit('notice', text); }
 function createRoom(): Room {
-  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map() };
+  const code = roomCode(); const r: Room = { code,phase:'LOBBY',players:new Map(),tasks:createTasks(),lastTick:Date.now(),lastStateEmitAt:Date.now(),host:'',emergencyCooldownUntil:0,roundStartedAt:0,suspicions:new Map(),taskStartedAt:new Map(),taskHoldStartedAt:new Map(),taskSwipeStartedAt:new Map(),taskSwipeDuration:new Map(),ventCooldownUntil:new Map() };
   rooms.set(code,r); return r;
 }
 function addPlayer(r: Room, socketId: string, name: string, bot = false): Player {
@@ -385,11 +413,15 @@ function botsTick(r: Room, now: number) {
         // the human from across the map. It only commits to a hunt at close
         // range, with a low per-tick decision chance; an active short hunt is
         // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<5_000&&current.distance<1_200;
-        const commit=retain||!!humanTarget&&humanTarget.distance<1_100&&random()<0.04;
+        const retain=!!current&&!!previous&&now-previous.selectedAt<8_000&&current.distance<1_800;
+        // If the human is already in the Mole's local area, commit instead of
+        // waiting for another low-probability roll. At medium range, use a
+        // stronger discretionary roll so a nearby human is not ignored for
+        // an entire solo round. The retained target prevents oscillation.
+        const commit=retain||!!humanTarget&&(humanTarget.distance<900||humanTarget.distance<1_600&&random()<0.12);
         if(commit&&humanTarget){
           if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,310,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+          moveBotToward(bot,humanTarget.candidate,350,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
         }else{
           botHuntTargets.delete(bot.id);
           const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
@@ -543,6 +575,21 @@ io.on('connection', socket => {
   });
   socket.on('kill',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||Date.now()<Math.max(player.cooldownUntil,room.roundStartedAt+12_000)){if(room&&player&&room.phase==='PLAYING'&&player.role==='MOLE'&&Date.now()<room.roundStartedAt+12_000)socket.emit('notice','Eliminations are disabled for the first 12 seconds of the round.');return;}const t=room.players.get(String(targetId));if(!t||!t.alive||t.id===player.id||t.role==='MOLE'||Math.hypot(t.x-player.x,t.y-player.y)>125)return;room.lastKill={killerId:player.id,victimId:t.id,at:Date.now()};t.corpseX=t.x;t.corpseY=t.y;t.alive=false;t.reported=false;t.moveX=0;t.moveY=0;t.movementInputAt=0;player.cooldownUntil=Date.now()+20_000;for(const witness of room.players.values())if(witness.bot&&witness.alive&&Math.hypot(witness.x-player.x,witness.y-player.y)<420&&hasLineOfSight(witness,player))room.suspicions.set(player.id,(room.suspicions.get(player.id)||0)+2);notice(room,`${t.name} has been eliminated.`);finish(room);emit(room);});
   socket.on('sabotage',(kind:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||player.role!=='MOLE'||!player.alive||room.sabotage&&room.sabotage.endsAt>Date.now())return;const type=kind==='doors'?'doors':'lights';room.sabotage={kind:type,endsAt:Date.now()+15_000};notice(room,type==='doors'?'Security lockdown: doors sealed for 15 seconds.':'Lights sabotaged: crew vision reduced.');emit(room);});
+  socket.on('vent:travel',(input?:{ventId?:unknown},ack?:(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>void)=>{
+    const respond=(result:{ok:boolean;error?:string;ventId?:string;x?:number;y?:number})=>{if(typeof ack==='function')ack(result);};
+    if(!room||!player||room.phase!=='PLAYING'||!player.alive||player.role!=='MOLE'){respond({ok:false,error:'Only a living Mole can use the vent network.'});return;}
+    const current=VENTS.findIndex(v=>v.id===input?.ventId);
+    if(current<0){respond({ok:false,error:'That vent is not part of this estate.'});return;}
+    const vent=VENTS[current];
+    if(Math.hypot(player.x-vent.x,player.y-vent.y)>92){respond({ok:false,error:'Move closer to the vent entrance.'});return;}
+    const now=Date.now(),cooldown=room.ventCooldownUntil.get(player.id)||0;
+    if(now<cooldown){respond({ok:false,error:'Vent network is cooling down for '+Math.ceil((cooldown-now)/1000)+' seconds.'});return;}
+    const destination=VENTS[(current+1)%VENTS.length];
+    if(blocked(destination.x,destination.y,24)){respond({ok:false,error:'The destination vent is obstructed. Try again.'});return;}
+    player.x=destination.x;player.y=destination.y;player.moveX=0;player.moveY=0;player.movementInputAt=0;player.lastMove=now;
+    room.ventCooldownUntil.set(player.id,now+7_000);
+    emit(room);respond({ok:true,ventId:destination.id,x:destination.x,y:destination.y});
+  });
   socket.on('report',(targetId:unknown)=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;const t=room.players.get(String(targetId));if(!t||t.alive||t.reported||Math.hypot(t.corpseX-player.x,t.corpseY-player.y)>180)return;t.reported=true;beginMeeting(room,`${player.name} reported a body.`);});
   socket.on('emergency',()=>{if(!room||!player||room.phase!=='PLAYING'||!player.alive)return;if(player.emergencyUsed||Date.now()<room.emergencyCooldownUntil){socket.emit('notice','Emergency protocol is unavailable right now.');return;}player.emergencyUsed=true;room.emergencyCooldownUntil=Date.now()+60_000;beginMeeting(room,`${player.name} called an emergency meeting.`);});
   socket.on('vote',(targetId:unknown)=>{if(!room||!player||room.phase!=='MEETING'||!room.meeting||!player.alive)return;const target=String(targetId);if(target==='skip')room.meeting.votes[player.id]='skip';else{const candidate=room.players.get(target);if(candidate?.alive)room.meeting.votes[player.id]=target;}emit(room);});
