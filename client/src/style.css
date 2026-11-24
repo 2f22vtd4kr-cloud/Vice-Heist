@@ -651,7 +651,7 @@ input,textarea{user-select:text;-webkit-user-select:text}
 .settings-row>button{grid-column:2;justify-self:start;}
 .settings-row small img{max-width:22px;max-height:22px;}
 .taskbox{width:min(94vw,460px);max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));}
-.ghost-controls .stick{opacity:1;pointer-events:auto;}
+.ghost-controls{justify-content:flex-end!important;}.ghost-controls .stick{opacity:1;pointer-events:auto;margin-left:auto;flex:0 0 128px;}
 .ghost-controls .actions{display:none!important;}
 @media(max-width:420px){
   .map-panel{width:96vw;height:min(88dvh,720px);padding:14px;gap:10px;}
