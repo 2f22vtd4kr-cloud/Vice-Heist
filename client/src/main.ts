@@ -440,27 +440,40 @@ const CAMERA_SECTORS=[
   {label:'Garage',tile:5},{label:'Server room',tile:6},
   {label:'Generator bay',tile:7},{label:'Speedboat dock',tile:8},
 ] as const;
+const CCTV_CAMERA_CENTERS=[{x:800,y:700},{x:1000,y:1000},{x:1400,y:1000},{x:180,y:850},{x:1000,y:1000},{x:1300,y:1100},{x:1000,y:1000},{x:250,y:1100}] as const;
 let cameraIndex=0;
 let cameraOpen=false;
 function updateCameraFeed(){
   if(!cameraOpen||!latest)return;
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m)return;
-  const camera=CAMERA_SECTORS[cameraIndex],col=(camera.tile-1)%4,row=Math.floor((camera.tile-1)/4);
+  const camera=CAMERA_SECTORS[cameraIndex],sector=camera.tile-1,col=sector%4,row=Math.floor(sector/4);
   const left=col*2048,top=row*2048;
   const signalLost=latest.sabotage?.kind==='lights'&&latest.sabotage.endsAt>Date.now();
   const feed=m.querySelector('.cctv-feed');if(feed)feed.classList.toggle('signal-lost',signalLost);
   const interference=m.querySelector('#cctv-interference');if(interference)interference.setAttribute('aria-hidden',signalLost?'false':'true');
   const title=m.querySelector('#cctv-title');if(title)title.textContent='CAM '+String(cameraIndex+1).padStart(2,'0')+' · '+camera.label.toUpperCase();
-  const image=m.querySelector<HTMLImageElement>('#cctv-image');if(image)image.src='/assets/map/take-'+camera.tile+'.webp';
-  const markers=m.querySelector('#cctv-markers');
-  if(markers)markers.innerHTML=signalLost?'':latest.players.filter(p=>p.x>=left&&p.x<left+2048&&p.y>=top&&p.y<top+2048).map(p=>'<span class="cctv-player '+(p.id===myId?'self ':'')+(p.alive?'':'down')+'" title="'+escapeHtml(p.name)+'" style="left:'+((p.x-left)/2048*100)+'%;top:'+((p.y-top)/2048*100)+'%"><i style="background:'+escapeHtml(p.color)+'"></i><b>'+escapeHtml(p.name)+'</b></span>').join('');
+  const image=m.querySelector<HTMLImageElement>('#cctv-image');
+  if(image&&image.dataset.tile!==String(camera.tile)){image.dataset.tile=String(camera.tile);image.src='/assets/map/take-'+camera.tile+'.webp';}
+  const canvas=m.querySelector<HTMLCanvasElement>('#cctv-feed-canvas'),ctx=canvas?.getContext('2d');
+  if(ctx&&canvas){
+    const viewWidth=1280,viewHeight=720,anchor=CCTV_CAMERA_CENTERS[sector];
+    const centerX=clamp(anchor.x,viewWidth/2,2048-viewWidth/2),centerY=clamp(anchor.y,viewHeight/2,2048-viewHeight/2);
+    const draw=()=>{
+      if(!cameraOpen)return;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if(image?.complete&&image.naturalWidth>0)ctx.drawImage(image,(centerX-viewWidth/2)/4,(centerY-viewHeight/2)/4,viewWidth/4,viewHeight/4,0,0,canvas.width,canvas.height);
+      else{ctx.fillStyle='#0a1b24';ctx.fillRect(0,0,canvas.width,canvas.height);}
+      if(!signalLost)sceneRef?.drawCctvActors(ctx,sector,centerX,centerY,viewWidth,viewHeight,canvas.width,canvas.height);
+    };
+    if(image&&(!image.complete||!image.naturalWidth))image.onload=draw;else draw();
+  }
   const count=signalLost?0:latest.players.filter(p=>p.x>=left&&p.x<left+2048&&p.y>=top&&p.y<top+2048).length;
   const status=m.querySelector('#cctv-status');if(status)status.textContent=signalLost?'SIGNAL LOST · LIGHTS SABOTAGE ACTIVE':'LIVE SERVER FEED · '+count+' ACTORS DETECTED';
 }
 function openCameraOverlay(){
   const m=document.querySelector<HTMLDivElement>('#meet');if(!m||!latest)return;
   cameraOpen=true;cameraIndex=0;
-  m.innerHTML='<section class="meetingbox art-panel cctv-panel" role="dialog" aria-modal="true" aria-label="Live sector map monitor"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · SECURITY NETWORK</p><h3>Live sector monitor</h3></div><button class="panel-close" id="cctv-close" aria-label="Close cameras">×</button></header><div class="cctv-frame"><div class="cctv-frame-head"><b id="cctv-title"></b><span>LIVE · PLAYER TRACKING</span></div><div class="cctv-feed"><img id="cctv-image" alt="Camera sector view"><div id="cctv-markers" class="cctv-markers"></div><div id="cctv-interference" class="cctv-interference" aria-hidden="true"><strong>NO SIGNAL</strong><span>LIGHTS SABOTAGE ACTIVE</span></div><div class="cctv-scanlines"></div></div><div class="cctv-status" id="cctv-status"></div></div><div class="cctv-controls"><button id="cctv-prev" class="secondary">‹ PREVIOUS</button><span id="cctv-index">01 / 08</span><button id="cctv-next" class="secondary">NEXT ›</button></div><p class="muted">Sector camera overlays use authoritative player positions from the live multiplayer snapshot.</p></section>';
+  m.innerHTML='<section class="meetingbox art-panel cctv-panel" role="dialog" aria-modal="true" aria-label="Live sector map monitor"><header class="map-panel-head"><div><p class="eyebrow">OCEAN DRIVE ESTATE · SECURITY NETWORK</p><h3>Live sector monitor</h3></div><button class="panel-close" id="cctv-close" aria-label="Close cameras">×</button></header><div class="cctv-frame"><div class="cctv-frame-head"><b id="cctv-title"></b><span>LIVE · PLAYER TRACKING</span></div><div class="cctv-feed"><img id="cctv-image" class="cctv-map-source" alt=""><canvas id="cctv-feed-canvas" width="512" height="288" aria-label="Rendered live sector camera view"></canvas><div id="cctv-interference" class="cctv-interference" aria-hidden="true"><strong>NO SIGNAL</strong><span>LIGHTS SABOTAGE ACTIVE</span></div><div class="cctv-scanlines"></div></div><div class="cctv-status" id="cctv-status"></div></div><div class="cctv-controls"><button id="cctv-prev" class="secondary">‹ PREVIOUS</button><span id="cctv-index">01 / 08</span><button id="cctv-next" class="secondary">NEXT ›</button></div><p class="muted">Fixed top-down sector cameras render live character sprites using authoritative multiplayer positions.</p></section>';
   m.querySelector('#cctv-close')?.addEventListener('click',()=>{cameraOpen=false;m.innerHTML='';});
   m.querySelector('#cctv-prev')?.addEventListener('click',()=>{cameraIndex=(cameraIndex+CAMERA_SECTORS.length-1)%CAMERA_SECTORS.length;updateCameraFeed();const index=m.querySelector('#cctv-index');if(index)index.textContent=String(cameraIndex+1).padStart(2,'0')+' / 08';});
   m.querySelector('#cctv-next')?.addEventListener('click',()=>{cameraIndex=(cameraIndex+1)%CAMERA_SECTORS.length;updateCameraFeed();const index=m.querySelector('#cctv-index');if(index)index.textContent=String(cameraIndex+1).padStart(2,'0')+' / 08';});
@@ -857,6 +870,25 @@ class Estate extends Phaser.Scene {
     for(const [id,a] of this.actors){const label=this.nameLabels.get(id);if(label){label.setText(s.players.find(p=>p.id===id)?.name||'');label.setPosition(a.x,a.y-48);}}
     for(const [id,a] of this.actors)if(!s.players.some(p=>p.id===id)){a.destroy();this.actors.delete(id);this.nameLabels.get(id)?.destroy();this.nameLabels.delete(id);this.remoteSamples.delete(id);}
     this.deathAnimating.clear();
+  }
+  drawCctvActors(ctx:CanvasRenderingContext2D,sector:number,centerX:number,centerY:number,viewWidth:number,viewHeight:number,width:number,height:number){
+    if(!latest)return;
+    const baseX=(sector%4)*2048,baseY=Math.floor(sector/4)*2048;
+    for(const player of latest.players){
+      if(player.x<baseX||player.x>=baseX+2048||player.y<baseY||player.y>=baseY+2048)continue;
+      const x=(player.x-baseX-centerX+viewWidth/2)/viewWidth*width;
+      const y=(player.y-baseY-centerY+viewHeight/2)/viewHeight*height;
+      const actor=this.actors.get(player.id);
+      if(!actor){
+        ctx.save();ctx.fillStyle=player.color;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.restore();continue;
+      }
+      const frame=actor.frame,source=actor.texture.getSourceImage() as CanvasImageSource;
+      const drawWidth=Math.max(12,actor.displayWidth/viewWidth*width),drawHeight=Math.max(12,actor.displayHeight/viewHeight*height);
+      ctx.save();ctx.translate(x,y);if(actor.flipX)ctx.scale(-1,1);ctx.globalAlpha=player.alive?1:.52;
+      ctx.drawImage(source,frame.cutX,frame.cutY,frame.cutWidth,frame.cutHeight,-drawWidth/2,-drawHeight/2,drawWidth,drawHeight);
+      ctx.globalAlpha=1;ctx.font='9px monospace';ctx.textAlign='center';ctx.fillStyle='#e8ffff';ctx.shadowColor='#001018';ctx.shadowBlur=3;ctx.fillText(player.name,0,drawHeight/2+10);
+      ctx.restore();
+    }
   }
   private playDeathAnimation(id:string,actor:Phaser.GameObjects.Sprite){
     if(this.deathAnimating.has(id)||!actor.active)return;
