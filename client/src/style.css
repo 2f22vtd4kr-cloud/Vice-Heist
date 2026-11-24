@@ -753,3 +753,6 @@ input,textarea{user-select:text;-webkit-user-select:text}
   .hud-tools button{width:34px;height:34px;padding:3px}
   .hudtop>span{display:none}
 }
+
+/* Mole vent interaction */
+.actions #vent{border-color:#8ed6c7;background:#173b39ed;color:#d8fff5}
