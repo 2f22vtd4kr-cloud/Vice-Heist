@@ -15,5 +15,6 @@ export type Snapshot = {
   code: string; phase: Phase; players: PublicPlayer[]; selfRole?: Role; isHost: boolean;
   tasks: Task[]; taskTotal: number; meeting?: Meeting; winner?: 'CREW' | 'MOLE';
   sabotage?: { kind: string; endsAt: number };
+  lastKill?: { killerId: string; victimId: string; at: number };
   selfCooldownUntil: number; selfEmergencyUsed: boolean; emergencyCooldownUntil: number;
 };
