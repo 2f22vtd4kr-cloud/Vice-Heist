@@ -11,7 +11,7 @@ async function unusedPort(){
   return port;
 }
 const port=await unusedPort(),origin='http://127.0.0.1:'+port;
-const child=spawn(process.execPath,['dist/server/src/index.js'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),REQUIRE_TELEGRAM_AUTH:'false',VICE_HEIST_TEST_SEED:'1'},stdio:['ignore','ignore','pipe']});
+const child=spawn(process.execPath,['dist/server/src/index.js'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),REQUIRE_TELEGRAM_AUTH:'false',VICE_HEIST_TEST_SEED:'1',VICE_HEIST_TEST_FORCE_HUMAN_MOLE:'true'},stdio:['ignore','ignore','pipe']});
 let errors='',socket,latest;
 child.stderr?.on('data',chunk=>{errors+=chunk.toString();});
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
