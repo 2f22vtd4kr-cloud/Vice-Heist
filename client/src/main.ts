@@ -457,7 +457,7 @@ function updateCameraFeed(){
   const canvas=m.querySelector<HTMLCanvasElement>('#cctv-feed-canvas'),ctx=canvas?.getContext('2d');
   if(ctx&&canvas){
     const viewWidth=1280,viewHeight=720,anchor=CCTV_CAMERA_CENTERS[sector];
-    const centerX=clamp(anchor.x,viewWidth/2,2048-viewWidth/2),centerY=clamp(anchor.y,viewHeight/2,2048-viewHeight/2);
+    const centerX=Math.max(viewWidth/2,Math.min(2048-viewWidth/2,anchor.x)),centerY=Math.max(viewHeight/2,Math.min(2048-viewHeight/2,anchor.y));
     const draw=()=>{
       if(!cameraOpen)return;
       ctx.clearRect(0,0,canvas.width,canvas.height);
