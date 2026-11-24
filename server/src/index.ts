@@ -409,23 +409,23 @@ function botsTick(r: Room, now: number) {
         const previous=botHuntTargets.get(bot.id);
         const current=crew.find(entry=>entry.candidate.id===previous?.targetId);
         const humanTarget=crew.find(entry=>!entry.candidate.bot);
-        // A Mole NPC should blend into the estate instead of beelining toward
-        // the human from across the map. It only commits to a hunt at close
-        // range, with a low per-tick decision chance; an active short hunt is
-        // retained briefly to avoid visibly twitching between targets.
-        const retain=!!current&&!!previous&&now-previous.selectedAt<8_000&&current.distance<1_800;
-        // If the human is already in the Mole's local area, commit instead of
-        // waiting for another low-probability roll. At medium range, use a
-        // stronger discretionary roll so a nearby human is not ignored for
-        // an entire solo round. The retained target prevents oscillation.
-        const commit=retain||!!humanTarget&&(humanTarget.distance<900||humanTarget.distance<1_600&&random()<0.12);
-        if(commit&&humanTarget){
-          if(!previous||previous.targetId!==humanTarget.candidate.id)botHuntTargets.set(bot.id,{targetId:humanTarget.candidate.id,selectedAt:now});
-          moveBotToward(bot,humanTarget.candidate,350,dtSeconds,'hunt:'+humanTarget.candidate.id,now);
+        const alternative=crew.find(entry=>entry.candidate.id!==previous?.targetId&&entry.distance<1_150);
+        const retain=!!current&&!!previous&&now-previous.selectedAt<5_500&&current.distance<1_350;
+        // In Solo, the sole human Crew member is the Mole NPC's target; do not
+        // let repeated random rolls leave the player untouched for a whole round.
+        // In multiplayer, keep target selection discretionary so the Mole can
+        // hunt nearby Crew NPCs or human players instead of hard-locking one user.
+        const selected=humanTarget&&[...r.players.values()].filter(p=>!p.bot&&p.role==='CREW').length===1
+          ?humanTarget
+          :(retain?current:(alternative&&current&&alternative.score<current.score+220?alternative:crew[0]));
+        const target=selected?.candidate;
+        if(target){
+          if(!previous||previous.targetId!==target.id)botHuntTargets.set(bot.id,{targetId:target.id,selectedAt:now});
+          moveBotToward(bot,target,370,dtSeconds,'hunt:'+target.id,now);
         }else{
           botHuntTargets.delete(bot.id);
-          const patrol=TASKS[(Math.floor(now/12_000)+bot.name.length*3)%TASKS.length];
-          moveBotToward(bot,patrol,218,dtSeconds,'patrol:'+patrol.id,now);
+          const patrol=TASKS[(Math.floor(now/8_000)+bot.name.length)%TASKS.length];
+          moveBotToward(bot,patrol,240,dtSeconds,'patrol:'+patrol.id,now);
         }
         if((!r.sabotage||r.sabotage.endsAt<=now)&&random()<(1-Math.pow(1-.008,dtSeconds/0.25))){r.sabotage={kind:'lights',endsAt:now+15_000};notice(r,`${bot.name} triggered a lights outage.`);}
         const victim=crew.map(entry=>entry.candidate)
