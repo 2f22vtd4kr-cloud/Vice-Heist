@@ -16,8 +16,10 @@ const origin = 'http://127.0.0.1:' + port;
 const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   cwd: process.cwd(),
   env: { ...process.env, PORT: String(port), REQUIRE_TELEGRAM_AUTH: 'false', VICE_HEIST_TEST_SEED: '20261123' },
-  stdio: 'ignore',
+  stdio: ['ignore', 'ignore', 'pipe'],
 });
+let serverErrors = '';
+child.stderr?.on('data', chunk => { serverErrors += chunk.toString(); });
 let socket;
 
 try {
@@ -55,6 +57,7 @@ try {
 
   const startedAt = Date.now();
   await new Promise(resolve => setTimeout(resolve, 25_000));
+  assert.equal(child.exitCode, null, 'game server should remain alive during bot navigation: ' + serverErrors);
 
   const livingBots = latest.players.filter(player => player.bot && player.alive);
   const movedBots = livingBots.filter(player => {
@@ -96,6 +99,11 @@ try {
   console.log('Bot navigation regression passed: ' + movedBots.length + '/' + livingBots.length + ' surviving bots moved at least 100 world units; ' + completedTasks + ' tasks completed; no unattended stationary bots across five 5-second windows.');
 } finally {
   socket?.close();
-  child.kill('SIGTERM');
-  await new Promise(resolve => child.once('exit', resolve));
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGTERM');
+    await new Promise(resolve => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve();
+      child.once('exit', resolve);
+    });
+  }
 }
