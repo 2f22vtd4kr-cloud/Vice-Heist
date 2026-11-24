@@ -23,6 +23,10 @@ const ROOT = process.cwd();
 const webRoot = existsSync(path.join(ROOT, 'dist/client')) ? path.join(ROOT, 'dist/client') : path.join(ROOT, 'client');
 app.get('/health', (_req, res) => res.json({ ok: true, game: 'Vice Heist', version: '1.0.1' }));
 app.get('/api/config', (_req, res) => res.json({ telegramAuthRequired: REQUIRE_TELEGRAM_AUTH, groqAvailable: true }));
+// Serve only the two uploaded playlist assets; do not expose the repository root.
+// Express sendFile supports byte ranges for browser streaming and seeking.
+app.get('/audio/kleiner-finger.m4a', (_req, res) => { res.type('audio/mp4'); res.sendFile(path.join(ROOT, 'Bohren & der Club of Gore – Kleiner Finger.m4a')); });
+app.get('/audio/rose-bianche.mp3', (_req, res) => { res.type('audio/mpeg'); res.sendFile(path.join(ROOT, 'Rose Bianche.mp3')); });
 app.use(express.static(webRoot, { etag: true, maxAge: '1h', setHeaders: (res: any, filePath: string) => { if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
 app.get('*', (req, res, next) => { if (req.path.startsWith('/socket.io')) return next(); res.sendFile(path.join(webRoot, 'index.html'), e => e && res.status(404).end()); });
 
