@@ -875,7 +875,7 @@ class Estate extends Phaser.Scene {
       this.nameLabels.get(id)?.setPosition(x,y-48);
       const last=samples[samples.length-1],prev=samples[samples.length-2],moving=!!prev&&Math.hypot(last.x-prev.x,last.y-prev.y)>2&&now-last.time<450;
       const player=latest?.players.find(p=>p.id===id);
-      if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying)actor.play(key,true);}}
+      if(moving){const dx=last.x-prev.x,dy=last.y-prev.y;actor.setFlipX(Math.abs(dx)>Math.abs(dy)&&dx<0);if(player?.alive){const key=Math.abs(dy)>Math.abs(dx)?(dy<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';if(actor.anims.currentAnim?.key!=='vh-kill-lunge'&&(actor.anims.currentAnim?.key!==key||!actor.anims.isPlaying))actor.play(key,true);}}
       else if(player?.alive&&actor.anims.isPlaying){actor.stop();actor.setTexture('walk_down_1');}
     }
     if(!latest||latest.phase!=='PLAYING'){this.stopMovement();return;}
@@ -902,7 +902,7 @@ class Estate extends Phaser.Scene {
       if(local.alive&&actor){
         const walkKey=Math.abs(y)>Math.abs(x)?(y<0?'vh-walk-up':'vh-walk-down'):'vh-walk-down';
         actor.setFlipX(Math.abs(x)>Math.abs(y)&&x<0);
-        if(actor.anims.currentAnim?.key!==walkKey||!actor.anims.isPlaying)actor.play(walkKey,true);
+        if(actor.anims.currentAnim?.key!=='vh-kill-lunge'&&(actor.anims.currentAnim?.key!==walkKey||!actor.anims.isPlaying))actor.play(walkKey,true);
       }
       if(time-this.lastEmit>=50){
         const epoch=this.moveSequence,request=++this.movementRequestSequence;
