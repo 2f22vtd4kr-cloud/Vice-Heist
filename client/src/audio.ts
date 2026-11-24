@@ -37,7 +37,7 @@ export class EstateAudio {
   private musicIndex=0;
   private musicStarted=false;
   private musicFailures=0;
-  private readonly musicTracks=['/audio/kleiner-finger.mp3','/audio/rose-bianche.mp3'];
+  private readonly musicTracks=['/audio/kleiner-finger.m4a','/audio/rose-bianche.mp3'];
   private getContext() {
     if(!this.context){
       const Ctor=window.AudioContext||(window as any).webkitAudioContext;
