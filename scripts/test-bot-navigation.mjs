@@ -44,7 +44,7 @@ try {
       let history = histories.get(bot.id);
       if (!history) { history = { name: bot.name, samples: [] }; histories.set(bot.id, history); }
       history.samples.push({
-        time, x: bot.x, y: bot.y, alive: bot.alive,
+        time, phase: state.phase, x: bot.x, y: bot.y, alive: bot.alive,
         tasks: state.tasks.filter(task => !task.done).map(task => ({ x: task.x, y: task.y })),
         players: state.players.filter(player => player.id !== bot.id && player.alive).map(player => ({ x: player.x, y: player.y })),
       });
@@ -68,7 +68,8 @@ try {
     for (let window = 0; window < 5; window++) {
       const from = startedAt + window * 5_000;
       const to = from + 5_000;
-      const samples = history.samples.filter(sample => sample.time >= from && sample.time <= to);
+      const samples = history.samples.filter(sample => sample.time >= from && sample.time <= to && sample.phase === 'PLAYING');
+      // NPCs correctly hold position during an active meeting; only judge navigation while the round is live.
       if (samples.length < 2) continue;
       let travelled = 0;
       for (let index = 1; index < samples.length; index++) {
